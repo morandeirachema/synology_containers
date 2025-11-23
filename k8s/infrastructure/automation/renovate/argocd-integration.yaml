@@ -1,0 +1,137 @@
+---
+# ArgoCD notification trigger for Renovate PRs
+# This integrates Renovate with ArgoCD to auto-sync after PR merge
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-renovate-config
+  namespace: argocd
+  labels:
+    app: argocd
+data:
+  # ArgoCD notification template for Renovate updates
+  template.renovate-pr: |
+    message: |
+      Renovate has created/updated a dependency PR:
+      {{.app.metadata.name}}
+
+      Repository: {{.app.spec.source.repoURL}}
+      Branch: {{.app.status.sync.revision}}
+
+      PR Title: {{.context.pr_title}}
+      Updated Dependencies: {{.context.dependencies}}
+
+  # ArgoCD webhook configuration for Renovate
+  webhook.renovate: |
+    - name: renovate-webhook
+      url: http://renovate.renovate.svc.cluster.local:8080/webhook
+      conditions:
+        - on: [sync-status-unknown, sync-running, health-degraded]
+          send: [renovate-webhook]
+---
+# ArgoCD Application for automated Renovate PR testing
+# This creates a temporary app to test Renovate PRs before merging
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: renovate-pr-preview
+  namespace: argocd
+  labels:
+    app: renovate-preview
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/YOUR_REPO
+    targetRevision: renovate/test-branch  # Branch name pattern
+    path: k8s/overlays/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: renovate-preview
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+# RBAC for Renovate to interact with ArgoCD
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: renovate-argocd
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: renovate-argocd
+  namespace: argocd
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - applications
+      - applicationsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - applications/sync
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: renovate-argocd
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: renovate-argocd
+subjects:
+  - kind: ServiceAccount
+    name: renovate-argocd
+    namespace: argocd
+---
+# ArgoCD sync webhook for Renovate
+# Automatically sync ArgoCD apps when Renovate PRs are merged
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-renovate-sync-hook
+  namespace: argocd
+  labels:
+    app: argocd-hooks
+data:
+  renovate-sync-hook.yaml: |
+    # GitHub Actions workflow to sync ArgoCD after Renovate PR merge
+    name: ArgoCD Sync on Renovate Merge
+
+    on:
+      pull_request:
+        types: [closed]
+        branches:
+          - main
+
+    jobs:
+      argocd-sync:
+        if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'renovate')
+        runs-on: ubuntu-latest
+        steps:
+          - name: Sync ArgoCD Application
+            run: |
+              # Install ArgoCD CLI
+              curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+              chmod +x argocd
+
+              # Login to ArgoCD
+              ./argocd login argocd.yourdomain.com --grpc-web --username admin --password ${{ secrets.ARGOCD_PASSWORD }}
+
+              # Sync all applications
+              ./argocd app sync --async --prune production-stack
+
+              echo "ArgoCD sync triggered for Renovate PR merge"

@@ -1,0 +1,210 @@
+---
+# Renovate Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: renovate-config
+  namespace: renovate
+  labels:
+    app: renovate
+data:
+  config.json: |
+    {
+      "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+      "platform": "github",
+      "repositories": ["<YOUR_ORG>/<YOUR_REPO>"],
+      "enabledManagers": ["kubernetes", "docker-compose", "kustomize", "helm-values"],
+
+      "kubernetes": {
+        "fileMatch": [
+          "^k8s/.+\\.yaml$",
+          "^k8s/.+\\.yml$"
+        ]
+      },
+
+      "docker": {
+        "enabled": true,
+        "pinDigests": false
+      },
+
+      "separateMinorPatch": true,
+      "separateMajorMinor": true,
+      "separateMultipleMajor": true,
+
+      "prConcurrentLimit": 3,
+      "prCreation": "immediate",
+      "prHourlyLimit": 2,
+
+      "labels": ["dependencies", "renovate"],
+
+      "assignees": [],
+      "reviewers": [],
+
+      "timezone": "UTC",
+      "schedule": ["after 10pm every weekday", "before 5am every weekday"],
+
+      "ignoreDeps": [],
+
+      "packageRules": [
+        {
+          "description": "Auto-merge patch updates for production images",
+          "matchUpdateTypes": ["patch"],
+          "matchPackagePatterns": ["traefik", "vaultwarden", "nextcloud"],
+          "automerge": false,
+          "labels": ["auto-merge-patch"]
+        },
+        {
+          "description": "Group all infrastructure updates",
+          "matchPackagePatterns": [
+            "metallb",
+            "cert-manager",
+            "cilium",
+            "velero",
+            "prometheus",
+            "grafana",
+            "loki"
+          ],
+          "groupName": "infrastructure",
+          "labels": ["infrastructure-update"]
+        },
+        {
+          "description": "Group all security tool updates",
+          "matchPackagePatterns": [
+            "trivy",
+            "authelia",
+            "conjur"
+          ],
+          "groupName": "security-tools",
+          "labels": ["security-update"],
+          "reviewers": []
+        },
+        {
+          "description": "Group all monitoring updates",
+          "matchPackagePatterns": [
+            "prometheus",
+            "grafana",
+            "loki",
+            "jaeger"
+          ],
+          "groupName": "monitoring",
+          "labels": ["monitoring-update"]
+        },
+        {
+          "description": "Pin critical production images to avoid auto-updates",
+          "matchPackagePatterns": ["postgres", "redis"],
+          "enabled": true,
+          "automerge": false,
+          "stabilityDays": 7,
+          "labels": ["database-update", "requires-review"]
+        },
+        {
+          "description": "Major updates require manual review",
+          "matchUpdateTypes": ["major"],
+          "automerge": false,
+          "stabilityDays": 7,
+          "labels": ["major-update", "requires-review"]
+        },
+        {
+          "description": "Security updates - high priority",
+          "matchDatasources": ["docker"],
+          "matchUpdateTypes": ["patch"],
+          "matchPackagePatterns": [".*"],
+          "vulnerabilityAlerts": {
+            "enabled": true
+          },
+          "stabilityDays": 0,
+          "labels": ["security-patch"],
+          "prPriority": 10
+        }
+      ],
+
+      "vulnerabilityAlerts": {
+        "enabled": true,
+        "labels": ["security", "vulnerability"],
+        "stabilityDays": 0,
+        "prCreation": "immediate"
+      },
+
+      "regexManagers": [
+        {
+          "fileMatch": ["^k8s/.+\\.yaml$"],
+          "matchStrings": [
+            "image:\\s+(?<depName>.*?):(?<currentValue>.*?)\\s"
+          ],
+          "datasourceTemplate": "docker"
+        }
+      ],
+
+      "onboarding": false,
+      "requireConfig": "optional",
+      "forkProcessing": "enabled",
+
+      "gitAuthor": "Renovate Bot <bot@renovateapp.com>",
+      "commitMessagePrefix": "[Renovate]",
+      "commitMessageAction": "Update",
+      "commitMessageTopic": "{{depName}}",
+      "commitMessageExtra": "to {{newValue}}",
+      "commitBody": "This PR updates {{depName}} from {{currentValue}} to {{newValue}}.\n\n**Release notes:** {{releaseNotes}}",
+
+      "lockFileMaintenance": {
+        "enabled": true,
+        "automerge": false,
+        "schedule": ["before 5am on monday"]
+      },
+
+      "dependencyDashboard": true,
+      "dependencyDashboardTitle": "🤖 Renovate Dependency Dashboard",
+      "dependencyDashboardHeader": "This dashboard provides an overview of all pending dependency updates.",
+      "dependencyDashboardFooter": "Updates are automatically checked daily.",
+
+      "ignorePresets": [":prHourlyLimit2"],
+
+      "postUpgradeTasks": {
+        "commands": [
+          "kustomize build k8s/overlays/production > /tmp/production-manifest.yaml",
+          "kubectl diff -f /tmp/production-manifest.yaml || true"
+        ],
+        "fileFilters": ["**/*.yaml"],
+        "executionMode": "branch"
+      }
+    }
+---
+# Alternative: Renovate config for self-hosted Git (Gitea/Gitlab)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: renovate-config-selfhosted
+  namespace: renovate
+  labels:
+    app: renovate
+    variant: selfhosted
+data:
+  config.json: |
+    {
+      "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+      "platform": "gitea",
+      "endpoint": "https://git.yourdomain.com/api/v1",
+      "repositories": ["homelab/k8s-cluster"],
+      "enabledManagers": ["kubernetes", "docker-compose", "kustomize"],
+
+      "kubernetes": {
+        "fileMatch": ["^k8s/.+\\.yaml$"]
+      },
+
+      "schedule": ["after 10pm every weekday", "before 5am every weekday"],
+      "prConcurrentLimit": 3,
+      "separateMajorMinor": true,
+      "labels": ["dependencies", "renovate"],
+
+      "packageRules": [
+        {
+          "matchUpdateTypes": ["major"],
+          "automerge": false,
+          "labels": ["major-update", "requires-review"]
+        }
+      ],
+
+      "onboarding": false,
+      "requireConfig": "optional",
+      "gitAuthor": "Renovate Bot <renovate@yourdomain.com>"
+    }

@@ -1,0 +1,219 @@
+---
+# ServiceMonitor for Jaeger Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger-operator
+  namespace: tracing
+  labels:
+    app: jaeger-operator
+spec:
+  selector:
+    matchLabels:
+      app: jaeger-operator
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+---
+# ServiceMonitor for Jaeger all-in-one
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: jaeger
+      app.kubernetes.io/component: all-in-one
+  endpoints:
+    - port: admin-http
+      interval: 30s
+      path: /metrics
+---
+# Prometheus alerts for Jaeger
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jaeger-alerts
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  groups:
+    - name: jaeger-health
+      interval: 30s
+      rules:
+        - alert: JaegerDown
+          expr: up{job="jaeger"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger instance is down"
+            description: "Jaeger has been down for more than 5 minutes."
+
+        - alert: JaegerOperatorDown
+          expr: up{job="jaeger-operator"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger Operator is down"
+            description: "Jaeger Operator has been down for more than 5 minutes."
+
+    - name: jaeger-performance
+      interval: 1m
+      rules:
+        - alert: JaegerHighMemoryUsage
+          expr: |
+            (container_memory_working_set_bytes{pod=~"jaeger-.*",container!=""} /
+             container_spec_memory_limit_bytes{pod=~"jaeger-.*",container!=""}) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger high memory usage"
+            description: "Jaeger pod {{ $labels.pod }} is using {{ $value }}% of its memory limit."
+
+        - alert: JaegerHighCPUUsage
+          expr: |
+            rate(container_cpu_usage_seconds_total{pod=~"jaeger-.*",container!=""}[5m]) * 100 > 80
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger high CPU usage"
+            description: "Jaeger pod {{ $labels.pod }} is using {{ $value }}% CPU."
+
+        - alert: JaegerStorageSpaceLow
+          expr: |
+            (kubelet_volume_stats_available_bytes{persistentvolumeclaim="jaeger-badger"} /
+             kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="jaeger-badger"}) * 100 < 15
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger storage space low"
+            description: "Jaeger storage has less than 15% space available."
+
+    - name: jaeger-traces
+      interval: 1m
+      rules:
+        - alert: JaegerHighSpanDropRate
+          expr: |
+            rate(jaeger_collector_spans_dropped_total[5m]) > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger is dropping spans"
+            description: "Jaeger collector is dropping {{ $value }} spans/sec."
+
+        - alert: JaegerNoTracesReceived
+          expr: |
+            rate(jaeger_collector_spans_received_total[5m]) == 0
+          for: 15m
+          labels:
+            severity: info
+            component: tracing
+          annotations:
+            summary: "Jaeger not receiving traces"
+            description: "No traces have been received by Jaeger for 15 minutes."
+
+        - alert: JaegerHighTraceLatency
+          expr: |
+            histogram_quantile(0.99, rate(jaeger_query_latency_bucket[5m])) > 1000
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger query latency high"
+            description: "99th percentile query latency is {{ $value }}ms."
+---
+# NetworkPolicy for Jaeger
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger
+  namespace: tracing
+spec:
+  podSelector:
+    matchLabels:
+      app: jaeger
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow trace collection from all namespaces
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 14268  # HTTP collector
+        - protocol: TCP
+          port: 14250  # gRPC collector
+        - protocol: TCP
+          port: 9411   # Zipkin
+        - protocol: UDP
+          port: 6831   # Jaeger compact thrift
+        - protocol: UDP
+          port: 6832   # Jaeger binary thrift
+    # Allow UI access from Traefik
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 16686  # Query UI
+    # Allow metrics scraping from Prometheus
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 14269  # Metrics
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow Kubernetes API
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              component: apiserver
+      ports:
+        - protocol: TCP
+          port: 6443
+---
+# PodDisruptionBudget for Jaeger
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: jaeger-pdb
+  namespace: tracing
+spec:
+  maxUnavailable: 0  # Don't evict Jaeger during cluster operations
+  selector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: all-in-one
+  unhealthyPodEvictionPolicy: IfHealthyBudget

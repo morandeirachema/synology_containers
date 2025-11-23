@@ -1,0 +1,301 @@
+---
+# Trivy Admission Controller - Block vulnerable images
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-admission
+  namespace: trivy-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trivy-admission
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trivy-admission
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trivy-admission
+subjects:
+  - kind: ServiceAccount
+    name: trivy-admission
+    namespace: trivy-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-admission-config
+  namespace: trivy-system
+data:
+  config.yaml: |
+    # Admission policy configuration
+    policy:
+      # Reject images with CRITICAL vulnerabilities
+      rejectCritical: true
+      # Reject images with HIGH vulnerabilities (can be adjusted)
+      rejectHigh: false
+      # Minimum severity to report
+      minSeverity: "MEDIUM"
+      # Ignore unfixed vulnerabilities
+      ignoreUnfixed: false
+      # Namespaces to skip (system namespaces)
+      skipNamespaces:
+        - kube-system
+        - kube-public
+        - kube-node-lease
+        - trivy-system
+        - cilium
+        - metallb-system
+        - cert-manager
+      # Skip images from trusted registries (optional)
+      skipRegistries: []
+      # Timeout for scanning
+      timeout: "5m"
+
+    # Trivy scanner configuration
+    trivy:
+      severity: "CRITICAL,HIGH,MEDIUM"
+      ignoreUnfixed: false
+      skipDirs: []
+      timeout: "5m"
+
+    # Cache configuration
+    cache:
+      enabled: true
+      ttl: "6h"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-admission
+  namespace: trivy-system
+  labels:
+    app: trivy-admission
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: trivy-admission
+  template:
+    metadata:
+      labels:
+        app: trivy-admission
+    spec:
+      serviceAccountName: trivy-admission
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: trivy-admission
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: trivy-admission
+          image: aquasec/trivy:0.50.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - trivy
+          args:
+            - server
+            - --listen=:8443
+            - --token-header=X-Trivy-Token
+            - --cache-dir=/tmp/trivy
+          env:
+            - name: TRIVY_SEVERITY
+              value: "CRITICAL,HIGH,MEDIUM"
+            - name: TRIVY_TIMEOUT
+              value: "5m"
+            - name: TRIVY_IGNORE_UNFIXED
+              value: "false"
+            - name: TRIVY_DB_REPOSITORY
+              value: "ghcr.io/aquasecurity/trivy-db"
+            - name: TRIVY_JAVA_DB_REPOSITORY
+              value: "ghcr.io/aquasecurity/trivy-java-db"
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /tmp/trivy
+            - name: config
+              mountPath: /etc/trivy
+              readOnly: true
+            - name: tls
+              mountPath: /etc/trivy/certs
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: config
+          configMap:
+            name: trivy-admission-config
+        - name: tls
+          secret:
+            secretName: trivy-admission-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-admission
+  namespace: trivy-system
+  labels:
+    app: trivy-admission
+spec:
+  selector:
+    app: trivy-admission
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+  type: ClusterIP
+---
+# Certificate for webhook TLS
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: trivy-admission-tls
+  namespace: trivy-system
+spec:
+  secretName: trivy-admission-tls
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  dnsNames:
+    - trivy-admission
+    - trivy-admission.trivy-system
+    - trivy-admission.trivy-system.svc
+    - trivy-admission.trivy-system.svc.cluster.local
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+---
+# Validating Webhook Configuration
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: trivy-admission
+  annotations:
+    cert-manager.io/inject-ca-from: trivy-system/trivy-admission-tls
+webhooks:
+  - name: trivy-admission.trivy-system.svc
+    admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: trivy-admission
+        namespace: trivy-system
+        path: /validate
+        port: 443
+      caBundle: ""  # Injected by cert-manager
+    rules:
+      - apiGroups:
+          - ""
+          - apps
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+          - deployments
+          - statefulsets
+          - daemonsets
+          - replicasets
+          - jobs
+          - cronjobs
+        scope: Namespaced
+    namespaceSelector:
+      matchExpressions:
+        - key: name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - trivy-system
+            - cilium
+            - metallb-system
+            - cert-manager
+    failurePolicy: Ignore  # Allow deployment if admission controller is down
+    sideEffects: None
+    timeoutSeconds: 30

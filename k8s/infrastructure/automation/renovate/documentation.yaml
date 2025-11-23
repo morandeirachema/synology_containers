@@ -1,0 +1,273 @@
+---
+# Renovate Documentation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: renovate-docs
+  namespace: renovate
+  labels:
+    purpose: documentation
+data:
+  README.md: |
+    # Renovate - Automated Dependency Updates
+
+    ## Overview
+
+    Renovate automatically scans Kubernetes manifests for outdated container images
+    and creates pull requests with updates. It integrates with ArgoCD for
+    GitOps-based deployments.
+
+    ## Features
+
+    - **Automated Image Updates**: Scans all Kubernetes manifests daily
+    - **Intelligent Grouping**: Groups related updates (infrastructure, security, monitoring)
+    - **Security Patches**: Prioritizes security vulnerability fixes
+    - **Version Pinning**: Supports semantic versioning and digest pinning
+    - **ArgoCD Integration**: Automatically syncs after PR merge
+    - **Customizable Rules**: Package-specific update strategies
+
+    ## Configuration
+
+    The Renovate configuration is stored in the `renovate-config` ConfigMap.
+
+    ### Key Settings
+
+    ```json
+    {
+      "schedule": ["after 10pm every weekday", "before 5am every weekday"],
+      "prConcurrentLimit": 3,
+      "separateMajorMinor": true,
+      "vulnerabilityAlerts": {
+        "enabled": true
+      }
+    }
+    ```
+
+    ### Package Rules
+
+    1. **Patch Updates**: Auto-mergeable for non-critical services
+    2. **Major Updates**: Require manual review with 7-day stability period
+    3. **Security Updates**: Immediate PRs with high priority
+    4. **Database Updates**: Pinned with manual review required
+
+    ## Setup
+
+    ### 1. Create GitHub Token
+
+    Create a Personal Access Token (PAT) with `repo` scope:
+    - Go to https://github.com/settings/tokens
+    - Click "Generate new token (classic)"
+    - Select `repo` scope
+    - Copy the token
+
+    ### 2. Update Secret
+
+    ```bash
+    kubectl create secret generic renovate-secret \
+      --from-literal=token=YOUR_GITHUB_TOKEN \
+      -n renovate
+    ```
+
+    Or use Conjur with External Secrets Operator:
+
+    ```bash
+    # Store in Conjur
+    conjur variable set renovate/github-token YOUR_TOKEN
+
+    # Deploy ExternalSecret (already configured)
+    kubectl apply -f argocd-integration.yaml
+    ```
+
+    ### 3. Update Repository
+
+    Edit `renovate-config` ConfigMap:
+
+    ```bash
+    kubectl edit configmap renovate-config -n renovate
+    ```
+
+    Change:
+    ```json
+    "repositories": ["YOUR_ORG/YOUR_REPO"]
+    ```
+
+    ### 4. Deploy Renovate
+
+    ```bash
+    kubectl apply -k k8s/infrastructure/automation/renovate/
+    ```
+
+    ## Manual Run
+
+    To run Renovate manually (for testing):
+
+    ```bash
+    kubectl create job --from=cronjob/renovate renovate-manual -n renovate
+
+    # Watch logs
+    kubectl logs -n renovate -l app=renovate -f
+    ```
+
+    ## PR Workflow
+
+    ### Automated Flow
+
+    1. **Daily Scan**: Renovate runs at 2 AM daily
+    2. **PR Creation**: Creates PRs for outdated images
+    3. **CI Checks**: GitHub Actions run tests on PR
+    4. **Review**: Manual review for major updates
+    5. **Merge**: Approved PRs are merged
+    6. **ArgoCD Sync**: ArgoCD detects change and syncs
+
+    ### PR Labels
+
+    - `dependencies`: All Renovate PRs
+    - `renovate`: Bot-generated updates
+    - `infrastructure-update`: Infrastructure component updates
+    - `security-update`: Security-related updates
+    - `major-update`: Major version updates (requires review)
+    - `requires-review`: Manual review needed
+
+    ## Update Strategies
+
+    ### Patch Updates (1.0.0 → 1.0.1)
+
+    - **Strategy**: Can be auto-merged after tests pass
+    - **Stability**: No waiting period
+    - **Services**: Non-critical production services
+
+    ### Minor Updates (1.0.0 → 1.1.0)
+
+    - **Strategy**: Separate PR, manual merge
+    - **Stability**: No waiting period
+    - **Services**: All services
+
+    ### Major Updates (1.0.0 → 2.0.0)
+
+    - **Strategy**: Separate PR, requires review
+    - **Stability**: 7-day waiting period
+    - **Services**: All services
+    - **Labels**: `major-update`, `requires-review`
+
+    ### Security Updates
+
+    - **Strategy**: Immediate PR, high priority
+    - **Stability**: No waiting period
+    - **Labels**: `security`, `vulnerability`
+    - **Auto-merge**: Disabled (manual verification)
+
+    ## Integration with ArgoCD
+
+    ### Automatic Sync
+
+    After merging Renovate PRs, ArgoCD automatically syncs:
+
+    1. GitHub Actions detects merged PR with `renovate` label
+    2. Workflow triggers ArgoCD sync
+    3. ArgoCD applies updated manifests
+    4. Monitoring alerts if deployment fails
+
+    ### Manual Sync
+
+    ```bash
+    argocd app sync production-stack
+    ```
+
+    ## Monitoring
+
+    ### Check Renovate Status
+
+    ```bash
+    # View recent jobs
+    kubectl get jobs -n renovate
+
+    # View logs
+    kubectl logs -n renovate -l app=renovate --tail=100
+
+    # Check for failed runs
+    kubectl get jobs -n renovate -l app=renovate --field-selector status.successful=0
+    ```
+
+    ### Prometheus Alerts
+
+    - **RenovateJobFailed**: Job execution failure
+    - **RenovateNotRunRecently**: No successful run in 48 hours
+    - **RenovateSecurityUpdates**: Security updates pending
+
+    ## Customization
+
+    ### Ignore Specific Images
+
+    Add to `renovate-config`:
+
+    ```json
+    "ignoreDeps": [
+      "postgres",
+      "redis:6.x"
+    ]
+    ```
+
+    ### Change Schedule
+
+    ```json
+    "schedule": ["every weekend"]
+    ```
+
+    ### Enable Auto-merge
+
+    ```json
+    "packageRules": [
+      {
+        "matchUpdateTypes": ["patch"],
+        "automerge": true
+      }
+    ]
+    ```
+
+    ### Add Custom Registry
+
+    ```json
+    "registryUrls": ["https://registry.yourdomain.com"]
+    ```
+
+    ## Troubleshooting
+
+    ### No PRs Created
+
+    1. Check token permissions: `kubectl get secret renovate-secret -n renovate -o yaml`
+    2. Verify repository access
+    3. Check logs for errors: `kubectl logs -n renovate -l app=renovate`
+    4. Verify config syntax: https://docs.renovatebot.com/
+
+    ### PR Creation Failing
+
+    - Check rate limits (GitHub: 5000/hour)
+    - Verify branch protection rules
+    - Check CODEOWNERS file
+
+    ### Images Not Detected
+
+    - Verify fileMatch pattern in config
+    - Check image format (must be `image: name:tag`)
+    - Ensure images are in public registries or credentials provided
+
+    ### ArgoCD Not Syncing
+
+    - Check ArgoCD webhook configuration
+    - Verify GitHub Actions workflow is enabled
+    - Check ArgoCD application sync policy
+
+    ## Best Practices
+
+    1. **Review Major Updates**: Always manually test major version updates
+    2. **Monitor Deployments**: Watch for issues after auto-syncing
+    3. **Test in Staging**: Use staging overlay for testing updates first
+    4. **Pin Databases**: Never auto-update database images
+    5. **Security First**: Merge security patches promptly
+    6. **Regular Reviews**: Review dependency dashboard weekly
+
+    ## Resources
+
+    - Renovate Docs: https://docs.renovatebot.com/
+    - Configuration Options: https://docs.renovatebot.com/configuration-options/
+    - ArgoCD Integration: https://argo-cd.readthedocs.io/

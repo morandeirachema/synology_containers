@@ -1,0 +1,199 @@
+---
+# ServiceMonitor for Trivy Operator metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+  labels:
+    app: trivy-operator
+spec:
+  selector:
+    matchLabels:
+      app: trivy-operator
+  endpoints:
+    - port: metrics
+      interval: 60s
+      path: /metrics
+      scheme: http
+---
+# Prometheus alerts for vulnerability scanning
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: trivy-alerts
+  namespace: trivy-system
+  labels:
+    app: trivy
+spec:
+  groups:
+    - name: trivy-vulnerabilities
+      interval: 5m
+      rules:
+        - alert: TrivyCriticalVulnerabilities
+          expr: |
+            sum(trivy_image_vulnerabilities{severity="CRITICAL"}) by (namespace, image) > 0
+          for: 1h
+          labels:
+            severity: critical
+            component: security
+          annotations:
+            summary: "Critical vulnerabilities detected in {{ $labels.namespace }}/{{ $labels.image }}"
+            description: "Image {{ $labels.image }} in namespace {{ $labels.namespace }} has {{ $value }} CRITICAL vulnerabilities."
+
+        - alert: TrivyHighVulnerabilities
+          expr: |
+            sum(trivy_image_vulnerabilities{severity="HIGH"}) by (namespace, image) > 5
+          for: 24h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "High vulnerabilities detected in {{ $labels.namespace }}/{{ $labels.image }}"
+            description: "Image {{ $labels.image }} in namespace {{ $labels.namespace }} has {{ $value }} HIGH vulnerabilities."
+
+        - alert: TrivyScanJobFailed
+          expr: |
+            kube_job_status_failed{job_name=~"trivy-scan-.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Trivy scan job {{ $labels.job_name }} failed"
+            description: "The Trivy vulnerability scan job {{ $labels.job_name }} has failed."
+
+        - alert: TrivyOperatorDown
+          expr: |
+            up{job="trivy-operator"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Trivy Operator is down"
+            description: "The Trivy Operator has been down for more than 5 minutes."
+
+        - alert: TrivyDatabaseOutdated
+          expr: |
+            (time() - trivy_vulnerability_db_update_timestamp) > 172800
+          for: 1h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Trivy vulnerability database is outdated"
+            description: "The Trivy vulnerability database hasn't been updated for more than 48 hours."
+
+        - alert: TrivyImageVulnerabilitiesIncreasing
+          expr: |
+            delta(trivy_image_vulnerabilities{severity=~"CRITICAL|HIGH"}[1d]) > 5
+          for: 1h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Vulnerability count increasing for {{ $labels.image }}"
+            description: "Image {{ $labels.image }} has {{ $value }} new CRITICAL/HIGH vulnerabilities in the last 24 hours."
+---
+# PodDisruptionBudget for Trivy Admission Controller
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trivy-admission-pdb
+  namespace: trivy-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: trivy-admission
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+---
+# NetworkPolicy for Trivy components
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  podSelector:
+    matchLabels:
+      app: trivy-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Prometheus to scrape metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow Kubernetes API
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              component: apiserver
+      ports:
+        - protocol: TCP
+          port: 6443
+    # Allow internet access for vulnerability DB updates
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-admission
+  namespace: trivy-system
+spec:
+  podSelector:
+    matchLabels:
+      app: trivy-admission
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow webhook calls from API server
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              component: apiserver
+      ports:
+        - protocol: TCP
+          port: 8443
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow internet access for image scanning
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

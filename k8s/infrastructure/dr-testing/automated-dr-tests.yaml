@@ -1,0 +1,400 @@
+---
+# ServiceAccount for DR testing
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dr-tester
+  namespace: velero
+
+---
+# ClusterRole for DR testing operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dr-tester
+rules:
+  # Velero operations
+  - apiGroups: ["velero.io"]
+    resources: ["backups", "restores", "schedules"]
+    verbs: ["get", "list", "create", "delete"]
+  # Read all resources for validation
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["pods", "deployments", "statefulsets", "services", "configmaps", "secrets", "jobs", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  # Namespace management for test environments
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "delete"]
+  # Events for reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+# ClusterRoleBinding for DR tester
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dr-tester
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dr-tester
+subjects:
+  - kind: ServiceAccount
+    name: dr-tester
+    namespace: velero
+
+---
+# CronJob for weekly automated DR tests
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: weekly-dr-test
+  namespace: velero
+  annotations:
+    description: "Weekly automated disaster recovery test - restores latest backup to test namespace"
+spec:
+  # Run every Sunday at 3am
+  schedule: "0 3 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: dr-test
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-test
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  #!/bin/bash
+                  set -e
+
+                  echo "=== Automated DR Test Started: $(date) ==="
+                  echo ""
+
+                  # Configuration
+                  TEST_NAMESPACE="dr-test-$(date +%Y%m%d-%H%M%S)"
+                  BACKUP_NAME=$(velero backup get --output json | jq -r '.items | sort_by(.status.completionTimestamp) | reverse | .[0].metadata.name')
+                  START_TIME=$(date +%s)
+
+                  echo "Latest backup: $BACKUP_NAME"
+                  echo "Test namespace: $TEST_NAMESPACE"
+                  echo ""
+
+                  # Create test namespace
+                  echo "Creating test namespace..."
+                  kubectl create namespace $TEST_NAMESPACE
+                  kubectl label namespace $TEST_NAMESPACE dr-test=true environment=test
+
+                  # Perform restore to test namespace
+                  echo "Initiating restore from backup: $BACKUP_NAME"
+                  RESTORE_NAME="dr-test-$(date +%Y%m%d-%H%M%S)"
+
+                  velero restore create $RESTORE_NAME \
+                    --from-backup $BACKUP_NAME \
+                    --namespace-mappings production:$TEST_NAMESPACE \
+                    --wait
+
+                  # Calculate RTO (Recovery Time Objective)
+                  END_TIME=$(date +%s)
+                  RTO=$((END_TIME - START_TIME))
+                  RTO_MINUTES=$((RTO / 60))
+
+                  echo ""
+                  echo "Restore completed in ${RTO_MINUTES} minutes"
+
+                  # Verify restore
+                  echo ""
+                  echo "=== Restore Validation ==="
+
+                  # Check all pods are running
+                  echo "Checking pod status..."
+                  TOTAL_PODS=$(kubectl get pods -n $TEST_NAMESPACE --no-headers | wc -l)
+                  RUNNING_PODS=$(kubectl get pods -n $TEST_NAMESPACE --field-selector=status.phase=Running --no-headers | wc -l)
+
+                  echo "Pods running: $RUNNING_PODS / $TOTAL_PODS"
+
+                  # Wait for pods to be ready (max 5 minutes)
+                  echo "Waiting for pods to be ready (timeout: 5m)..."
+                  kubectl wait --for=condition=ready pod --all -n $TEST_NAMESPACE --timeout=300s || echo "Warning: Some pods did not become ready"
+
+                  # Check PVCs
+                  echo ""
+                  echo "Checking PVCs..."
+                  kubectl get pvc -n $TEST_NAMESPACE
+
+                  # Check services
+                  echo ""
+                  echo "Checking services..."
+                  kubectl get svc -n $TEST_NAMESPACE
+
+                  # Get restore details
+                  echo ""
+                  echo "=== Restore Details ==="
+                  velero restore describe $RESTORE_NAME
+
+                  # Generate test report
+                  echo ""
+                  echo "=== DR Test Report ==="
+                  echo "Test Date: $(date)"
+                  echo "Backup Used: $BACKUP_NAME"
+                  echo "Restore Name: $RESTORE_NAME"
+                  echo "Test Namespace: $TEST_NAMESPACE"
+                  echo "Recovery Time (RTO): ${RTO_MINUTES} minutes"
+                  echo "Pods Restored: $TOTAL_PODS"
+                  echo "Pods Running: $RUNNING_PODS"
+
+                  # Determine test result
+                  if [ "$RUNNING_PODS" -eq "$TOTAL_PODS" ]; then
+                    echo "Test Result: ✅ PASS"
+                    TEST_RESULT="PASS"
+                  else
+                    echo "Test Result: ❌ FAIL (Not all pods running)"
+                    TEST_RESULT="FAIL"
+                  fi
+
+                  # Create Kubernetes event with test results
+                  cat <<EOF | kubectl apply -f -
+                  apiVersion: v1
+                  kind: Event
+                  metadata:
+                    name: dr-test-$(date +%Y%m%d-%H%M%S)
+                    namespace: velero
+                  involvedObject:
+                    apiVersion: velero.io/v1
+                    kind: Restore
+                    name: $RESTORE_NAME
+                    namespace: velero
+                  reason: DRTestCompleted
+                  message: "DR Test $TEST_RESULT: RTO=${RTO_MINUTES}m, Pods=${RUNNING_PODS}/${TOTAL_PODS}"
+                  type: Normal
+                  firstTimestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  EOF
+
+                  # Cleanup test namespace (keep for 1 hour for manual inspection)
+                  echo ""
+                  echo "Test namespace will be kept for 1 hour for inspection: $TEST_NAMESPACE"
+                  echo "To delete manually: kubectl delete namespace $TEST_NAMESPACE"
+
+                  # Schedule cleanup
+                  sleep 3600
+                  kubectl delete namespace $TEST_NAMESPACE --wait=false || true
+
+                  echo ""
+                  echo "=== DR Test Completed ==="
+
+                  # Exit with error if test failed
+                  if [ "$TEST_RESULT" = "FAIL" ]; then
+                    exit 1
+                  fi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+
+---
+# CronJob for monthly full DR validation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: monthly-full-dr-validation
+  namespace: velero
+  annotations:
+    description: "Monthly comprehensive DR validation with all namespaces"
+spec:
+  # Run on 1st of every month at 2am
+  schedule: "0 2 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 6
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: dr-full-validation
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: full-validation
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  #!/bin/bash
+                  set -e
+
+                  echo "=== Monthly Full DR Validation: $(date) ==="
+                  echo ""
+
+                  # Test all backup schedules
+                  SCHEDULES=$(velero schedule get --output json | jq -r '.items[].metadata.name')
+
+                  for SCHEDULE in $SCHEDULES; do
+                    echo "Testing schedule: $SCHEDULE"
+
+                    # Get latest backup for this schedule
+                    BACKUP=$(velero backup get --output json | \
+                      jq -r ".items[] | select(.metadata.labels.\"velero.io/schedule-name\" == \"$SCHEDULE\") | .metadata.name" | \
+                      head -1)
+
+                    if [ -z "$BACKUP" ]; then
+                      echo "  ⚠️  No backup found for schedule: $SCHEDULE"
+                      continue
+                    fi
+
+                    echo "  Latest backup: $BACKUP"
+
+                    # Verify backup is valid
+                    BACKUP_STATUS=$(velero backup describe $BACKUP --details | grep "Phase:" | awk '{print $2}')
+                    echo "  Backup status: $BACKUP_STATUS"
+
+                    if [ "$BACKUP_STATUS" != "Completed" ]; then
+                      echo "  ❌ Backup not completed successfully"
+                    else
+                      echo "  ✅ Backup valid"
+                    fi
+
+                    echo ""
+                  done
+
+                  # Check backup repository health
+                  echo "=== Backup Repository Health ==="
+                  velero backup-location get
+
+                  echo ""
+                  echo "=== Validation Complete ==="
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+
+---
+# ConfigMap with DR test scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-test-scripts
+  namespace: velero
+data:
+  manual-dr-test.sh: |
+    #!/bin/bash
+    # Manual DR test script
+    # Usage: ./manual-dr-test.sh <backup-name>
+
+    BACKUP_NAME=${1:-$(velero backup get -o json | jq -r '.items | sort_by(.status.completionTimestamp) | reverse | .[0].metadata.name')}
+    TEST_NS="dr-test-manual-$(date +%Y%m%d-%H%M%S)"
+
+    echo "Testing restore from backup: $BACKUP_NAME"
+    echo "Test namespace: $TEST_NS"
+
+    # Create test namespace
+    kubectl create namespace $TEST_NS
+
+    # Perform restore
+    velero restore create test-restore-$(date +%Y%m%d-%H%M%S) \
+      --from-backup $BACKUP_NAME \
+      --namespace-mappings production:$TEST_NS \
+      --wait
+
+    echo ""
+    echo "Restore complete. Verify with:"
+    echo "  kubectl get all -n $TEST_NS"
+    echo ""
+    echo "Cleanup with:"
+    echo "  kubectl delete namespace $TEST_NS"
+
+  validate-backup.sh: |
+    #!/bin/bash
+    # Validate a specific backup
+    # Usage: ./validate-backup.sh <backup-name>
+
+    BACKUP_NAME=$1
+
+    if [ -z "$BACKUP_NAME" ]; then
+      echo "Usage: $0 <backup-name>"
+      exit 1
+    fi
+
+    echo "Validating backup: $BACKUP_NAME"
+    echo ""
+
+    # Get backup details
+    velero backup describe $BACKUP_NAME --details
+
+    # Check backup status
+    STATUS=$(velero backup get $BACKUP_NAME -o json | jq -r '.status.phase')
+    echo ""
+    echo "Backup status: $STATUS"
+
+    # Check for errors
+    ERRORS=$(velero backup logs $BACKUP_NAME 2>&1 | grep -i error | wc -l)
+    echo "Errors in backup: $ERRORS"
+
+    if [ "$STATUS" = "Completed" ] && [ "$ERRORS" -eq 0 ]; then
+      echo "✅ Backup is valid"
+      exit 0
+    else
+      echo "❌ Backup validation failed"
+      exit 1
+    fi

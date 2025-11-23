@@ -1,0 +1,122 @@
+---
+# Prometheus alerts for DR testing
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dr-test-alerts
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+spec:
+  groups:
+    - name: dr-test-health
+      interval: 1h
+      rules:
+        - alert: DRTestFailed
+          expr: |
+            kube_job_status_failed{namespace="dr-testing",job_name=~"dr-test-.*"} > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: disaster-recovery
+          annotations:
+            summary: "DR test {{ $labels.job_name }} failed"
+            description: "The disaster recovery test {{ $labels.job_name }} has failed. Immediate investigation required."
+            runbook: "Check /reports volume for detailed test results and logs."
+
+        - alert: DRTestNotRunRecently
+          expr: |
+            (time() - max(kube_job_status_start_time{namespace="dr-testing",job_name=~"dr-test-q.*"}) by (job_name)) > 7776000
+          for: 1h
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "DR test not run in 90 days"
+            description: "No DR test has been run in the last 90 days. Quarterly testing may be overdue."
+
+        - alert: DRTestHighRTO
+          expr: |
+            kube_job_status_completion_time{namespace="dr-testing",job_name=~"dr-test-.*"} -
+            kube_job_status_start_time{namespace="dr-testing",job_name=~"dr-test-.*"} > 3600
+          for: 5m
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "DR test RTO exceeded 1 hour"
+            description: "The DR test {{ $labels.job_name }} took longer than 1 hour to complete."
+
+        - alert: DRTestReportStorageLow
+          expr: |
+            (kubelet_volume_stats_available_bytes{persistentvolumeclaim="dr-test-reports"} /
+             kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="dr-test-reports"}) * 100 < 20
+          for: 1h
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "DR test report storage low"
+            description: "DR test report storage has less than 20% space available."
+---
+# NetworkPolicy for DR testing
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dr-tester
+  namespace: dr-testing
+spec:
+  podSelector:
+    matchLabels:
+      app: dr-tester
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow Kubernetes API
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              component: apiserver
+      ports:
+        - protocol: TCP
+          port: 6443
+    # Allow Velero namespace access
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: velero
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# NetworkPolicy for DR test restore namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dr-test-restore-default-deny
+  namespace: dr-test-restore
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Default deny all - test environment should be isolated
+  ingress: []
+  egress:
+    # Allow DNS only
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53

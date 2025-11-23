@@ -1,0 +1,193 @@
+---
+# ServiceAccount for Renovate
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: renovate
+  namespace: renovate
+---
+# Renovate deployment - runs as CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: renovate
+  namespace: renovate
+  labels:
+    app: renovate
+spec:
+  # Run daily at 2 AM
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: renovate
+    spec:
+      ttlSecondsAfterFinished: 86400  # 24 hours
+      template:
+        metadata:
+          labels:
+            app: renovate
+        spec:
+          serviceAccountName: renovate
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: renovate
+              image: renovate/renovate:37.150.2
+              imagePullPolicy: IfNotPresent
+              env:
+                # Platform configuration
+                - name: RENOVATE_PLATFORM
+                  value: "github"  # Change to: gitea, gitlab, etc.
+
+                # GitHub token (create secret first)
+                - name: RENOVATE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: renovate-secret
+                      key: token
+
+                # Optional: GitHub app credentials (more secure)
+                # - name: RENOVATE_GITHUB_APP_ID
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: renovate-secret
+                #       key: github-app-id
+                # - name: RENOVATE_GITHUB_APP_KEY
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: renovate-secret
+                #       key: github-app-key
+
+                # Configuration
+                - name: RENOVATE_CONFIG_FILE
+                  value: "/config/config.json"
+
+                # Logging
+                - name: LOG_LEVEL
+                  value: "info"
+                - name: RENOVATE_LOG_FILE_LEVEL
+                  value: "debug"
+
+                # Renovate settings
+                - name: RENOVATE_AUTODISCOVER
+                  value: "false"
+                - name: RENOVATE_DRY_RUN
+                  value: "false"  # Set to "true" for testing
+
+                # Git configuration
+                - name: RENOVATE_GIT_AUTHOR
+                  value: "Renovate Bot <renovate@yourdomain.com>"
+
+                # Optional: Custom registries
+                # - name: RENOVATE_DOCKER_REGISTRY
+                #   value: "registry.yourdomain.com"
+                # - name: RENOVATE_DOCKER_USERNAME
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: renovate-secret
+                #       key: registry-username
+                # - name: RENOVATE_DOCKER_PASSWORD
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: renovate-secret
+                #       key: registry-password
+
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 1000
+                seccompProfile:
+                  type: RuntimeDefault
+
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: cache
+                  mountPath: /tmp/renovate
+                - name: tmp
+                  mountPath: /tmp
+
+          volumes:
+            - name: config
+              configMap:
+                name: renovate-config
+            - name: cache
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir: {}
+---
+# Secret template for Renovate tokens (fill in actual values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: renovate-secret
+  namespace: renovate
+  labels:
+    app: renovate
+type: Opaque
+stringData:
+  # GitHub Personal Access Token (PAT) with repo scope
+  # Create at: https://github.com/settings/tokens
+  token: "REPLACE_WITH_YOUR_GITHUB_TOKEN"
+
+  # Optional: GitHub App credentials (recommended for production)
+  # github-app-id: "123456"
+  # github-app-key: |
+  #   -----BEGIN RSA PRIVATE KEY-----
+  #   your-private-key-here
+  #   -----END RSA PRIVATE KEY-----
+
+  # Optional: Private registry credentials
+  # registry-username: "your-username"
+  # registry-password: "your-password"
+---
+# Alternative: Use External Secrets Operator with Conjur
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: renovate-secret-eso
+  namespace: renovate
+  labels:
+    app: renovate
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: conjur-secret-store
+    kind: SecretStore
+  target:
+    name: renovate-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: renovate/github-token
+    # Optional: Add more secrets
+    # - secretKey: github-app-id
+    #   remoteRef:
+    #     key: renovate/github-app-id
+    # - secretKey: github-app-key
+    #   remoteRef:
+    #     key: renovate/github-app-key

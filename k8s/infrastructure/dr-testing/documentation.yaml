@@ -1,0 +1,233 @@
+---
+# DR Testing Documentation ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-testing-docs
+  namespace: dr-testing
+  labels:
+    purpose: documentation
+data:
+  README.md: |
+    # Disaster Recovery Testing Framework
+
+    ## Overview
+
+    Automated quarterly DR testing framework that validates backup/restore procedures,
+    measures RTO/RPO metrics, and ensures disaster recovery readiness.
+
+    ## Schedule
+
+    DR tests run automatically on the 15th of each quarter:
+    - **Q1**: January 15th at 3:00 AM
+    - **Q2**: April 15th at 3:00 AM
+    - **Q3**: July 15th at 3:00 AM
+    - **Q4**: October 15th at 3:00 AM
+
+    ## Manual Testing
+
+    To run a DR test manually:
+
+    ```bash
+    # Create a manual test job
+    kubectl create -f k8s/infrastructure/dr-testing/manual-test-job.yaml
+
+    # Watch the test progress
+    kubectl logs -n dr-testing -l app=dr-tester -f
+
+    # Check test results
+    kubectl get jobs -n dr-testing
+    ```
+
+    ## Test Phases
+
+    Each DR test executes the following phases:
+
+    1. **Cleanup**: Remove previous test namespace
+    2. **Find Backup**: Identify latest backup
+    3. **Create Restore**: Initiate Velero restore
+    4. **Wait for Completion**: Monitor restore progress
+    5. **Validate Resources**: Count restored resources
+    6. **Pod Readiness**: Wait for all pods to be running
+    7. **PVC Validation**: Verify all volumes are bound
+    8. **Endpoint Testing**: Check service endpoints
+
+    ## Metrics Collected
+
+    - **RTO (Recovery Time Objective)**: Time to restore from backup
+    - **Resource Count**: Deployments, StatefulSets, Services, PVCs restored
+    - **Pod Readiness Time**: Time for all pods to reach Running state
+    - **Success Rate**: Pass/fail status of each test
+
+    ## Viewing Reports
+
+    DR test reports are stored in the `dr-test-reports` PVC:
+
+    ```bash
+    # Access reports volume
+    kubectl exec -n dr-testing -it <dr-test-pod> -- ls /reports
+
+    # View summary
+    kubectl exec -n dr-testing -it <dr-test-pod> -- cat /reports/dr-test-summary.txt
+
+    # Copy reports locally
+    kubectl cp dr-testing/<pod>:/reports ./dr-reports
+    ```
+
+    ## Alerts
+
+    Prometheus alerts are configured for:
+    - **DRTestFailed**: Test execution failure (Critical)
+    - **DRTestNotRunRecently**: No test in 90 days (Warning)
+    - **DRTestHighRTO**: RTO exceeds 1 hour (Warning)
+    - **DRTestReportStorageLow**: Low storage space (Warning)
+
+    ## Customization
+
+    ### Testing Specific Backups
+
+    Edit the manual test job to specify a backup:
+
+    ```yaml
+    env:
+      - name: BACKUP_NAME
+        value: "daily-full-backup-20250115"  # Specific backup name
+    ```
+
+    ### Adjusting Test Configuration
+
+    Edit the `dr-test-config` ConfigMap:
+
+    ```bash
+    kubectl edit configmap dr-test-config -n dr-testing
+    ```
+
+    ### Extending Validation
+
+    Modify the `dr-test.sh` script in the `dr-test-scripts` ConfigMap to add
+    application-specific validation steps.
+
+    ## Best Practices
+
+    1. **Review Reports**: Check test reports after each quarterly run
+    2. **Update Procedures**: Update DR procedures based on test findings
+    3. **Document RTO/RPO**: Track metrics over time to identify trends
+    4. **Test Improvements**: Incorporate lessons learned into backup strategy
+    5. **Manual Verification**: Perform manual checks on restored applications
+
+    ## Cleanup
+
+    Test namespaces are preserved by default for manual inspection:
+
+    ```bash
+    # List test namespaces
+    kubectl get namespaces | grep dr-test
+
+    # Manually cleanup after inspection
+    kubectl delete namespace dr-test-restore
+
+    # Or enable auto-cleanup in config
+    kubectl edit configmap dr-test-config -n dr-testing
+    # Set cleanup_on_success: true
+    ```
+
+    ## Troubleshooting
+
+    ### Test Fails to Start
+
+    Check Velero is running:
+    ```bash
+    kubectl get pods -n velero
+    kubectl get backupstoragelocations -n velero
+    ```
+
+    ### Restore Times Out
+
+    - Check Synology NFS connectivity
+    - Verify backup exists: `kubectl get backups -n velero`
+    - Check Velero logs: `kubectl logs -n velero -l app=velero`
+
+    ### Pods Don't Start
+
+    - Check PVC binding: `kubectl get pvc -n dr-test-restore`
+    - Check pod events: `kubectl describe pod -n dr-test-restore <pod-name>`
+    - Check node resources: `kubectl top nodes`
+
+    ### No Reports Generated
+
+    - Verify PVC is bound: `kubectl get pvc dr-test-reports -n dr-testing`
+    - Check pod logs: `kubectl logs -n dr-testing -l app=dr-tester`
+    - Verify write permissions on reports volume
+
+    ## Integration with CI/CD
+
+    DR test results can be integrated into CI/CD pipelines:
+
+    ```bash
+    # Run test and wait for completion
+    kubectl create -f manual-test-job.yaml
+    JOB_NAME=$(kubectl get jobs -n dr-testing -l type=manual --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+
+    # Wait for job completion
+    kubectl wait --for=condition=complete --timeout=30m job/$JOB_NAME -n dr-testing
+
+    # Check exit code
+    kubectl logs -n dr-testing job/$JOB_NAME | grep "Status: PASS"
+    ```
+
+  RUNBOOK.md: |
+    # DR Test Failure Runbook
+
+    ## When a DR Test Fails
+
+    ### 1. Immediate Actions
+
+    ```bash
+    # Get test status
+    kubectl get jobs -n dr-testing
+
+    # View logs
+    FAILED_JOB=$(kubectl get jobs -n dr-testing -l app=dr-tester --field-selector status.successful=0 --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+    kubectl logs -n dr-testing job/$FAILED_JOB
+
+    # Check restore status
+    kubectl get restores -n velero
+    kubectl describe restore <restore-name> -n velero
+    ```
+
+    ### 2. Common Failure Scenarios
+
+    #### Backup Not Found
+    - Verify backups exist: `kubectl get backups -n velero`
+    - Check backup storage: `kubectl get backupstoragelocations -n velero`
+    - Verify Synology NFS is accessible
+
+    #### Restore Timeout
+    - Check Velero pod health: `kubectl get pods -n velero`
+    - Verify network connectivity to Synology
+    - Check available storage space
+    - Review Velero logs: `kubectl logs -n velero -l app=velero`
+
+    #### PVC Binding Failures
+    - Verify NFS CSI driver: `kubectl get pods -n kube-system -l app=nfs-csi`
+    - Check NFS exports on Synology
+    - Verify storage class: `kubectl get storageclass nfs-client`
+
+    #### Pod Startup Failures
+    - Check resource availability: `kubectl top nodes`
+    - Review pod events: `kubectl get events -n dr-test-restore`
+    - Verify container images are accessible
+
+    ### 3. Resolution Steps
+
+    1. Fix identified issues
+    2. Run manual DR test to validate fix
+    3. Document root cause and resolution
+    4. Update DR procedures if needed
+
+    ### 4. Escalation
+
+    If unable to resolve within 4 hours:
+    - Document all troubleshooting steps taken
+    - Create detailed incident report
+    - Review backup/restore strategy

@@ -1,0 +1,421 @@
+---
+# Jaeger instance with production configuration
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: jaeger-production
+  namespace: observability
+spec:
+  # Production strategy (collector + query + agent as sidecar)
+  strategy: production
+
+  # Storage backend (Elasticsearch or memory)
+  # For production, use Elasticsearch. For testing, use memory.
+  storage:
+    type: memory
+    options:
+      memory:
+        max-traces: 100000
+    # For production with Elasticsearch:
+    # type: elasticsearch
+    # options:
+    #   es:
+    #     server-urls: http://elasticsearch:9200
+    #     index-prefix: jaeger
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-production
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    hosts:
+      - jaeger.yourdomain.com
+    tls:
+      - secretName: jaeger-tls
+        hosts:
+          - jaeger.yourdomain.com
+
+  # Collector configuration
+  collector:
+    replicas: 2
+    maxReplicas: 5
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    options:
+      log-level: info
+      collector:
+        num-workers: 50
+        queue-size: 2000
+    # Anti-affinity for HA
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: jaeger
+                  app.kubernetes.io/component: collector
+              topologyKey: kubernetes.io/hostname
+
+  # Query service configuration (UI)
+  query:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    options:
+      log-level: info
+      query:
+        base-path: /
+    # Anti-affinity for HA
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: jaeger
+                  app.kubernetes.io/component: query
+              topologyKey: kubernetes.io/hostname
+
+  # Agent configuration (sidecar for applications)
+  agent:
+    strategy: DaemonSet  # or Sidecar for manual injection
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    options:
+      log-level: info
+
+  # Sampling strategy
+  sampling:
+    options:
+      default_strategy:
+        type: probabilistic
+        param: 0.1  # 10% sampling rate (adjust based on traffic)
+
+---
+# Service for Jaeger Collector (for applications to send traces)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: observability
+  labels:
+    app: jaeger
+    app.kubernetes.io/component: collector
+spec:
+  type: ClusterIP
+  ports:
+    # OTLP gRPC
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    # OTLP HTTP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    # Jaeger Thrift
+    - name: jaeger-thrift
+      port: 14268
+      targetPort: 14268
+      protocol: TCP
+    # Zipkin
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+      protocol: TCP
+  selector:
+    app: jaeger
+    app.kubernetes.io/component: collector
+
+---
+# PodDisruptionBudget for Jaeger Collector
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: jaeger-collector-pdb
+  namespace: observability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: collector
+
+---
+# PodDisruptionBudget for Jaeger Query
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: jaeger-query-pdb
+  namespace: observability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: query
+
+---
+# HorizontalPodAutoscaler for Jaeger Collector
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: jaeger-collector-hpa
+  namespace: observability
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: jaeger-production-collector
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+
+---
+# NetworkPolicy for Jaeger components
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger-collector
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: collector
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow trace ingestion from all namespaces
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4317  # OTLP gRPC
+        - protocol: TCP
+          port: 4318  # OTLP HTTP
+        - protocol: TCP
+          port: 14268  # Jaeger Thrift
+    # Allow metrics scraping from monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 14269  # Metrics
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow communication with storage backend (adjust for Elasticsearch)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: jaeger
+      ports:
+        - protocol: TCP
+          port: 16686
+        - protocol: TCP
+          port: 16687
+
+---
+# NetworkPolicy for Jaeger Query (UI)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger-query
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: query
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow UI access from ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 16686
+    # Allow metrics scraping from monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 16687
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow query to storage/collector
+    - to:
+        - podSelector:
+            matchLabels:
+              app: jaeger
+
+---
+# ConfigMap with application instrumentation examples
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-instrumentation-examples
+  namespace: observability
+data:
+  python-example.py: |
+    # Python application instrumentation with OpenTelemetry
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.resources import Resource
+
+    # Configure tracer
+    resource = Resource(attributes={"service.name": "my-python-service"})
+    trace.set_tracer_provider(TracerProvider(resource=resource))
+    tracer = trace.get_tracer(__name__)
+
+    # Configure OTLP exporter
+    otlp_exporter = OTLPSpanExporter(
+        endpoint="jaeger-collector.observability.svc.cluster.local:4317",
+        insecure=True
+    )
+    trace.get_tracer_provider().add_span_processor(
+        BatchSpanProcessor(otlp_exporter)
+    )
+
+    # Use tracer in your code
+    with tracer.start_as_current_span("my-operation"):
+        # Your code here
+        pass
+
+  nodejs-example.js: |
+    // Node.js application instrumentation with OpenTelemetry
+    const { NodeSDK } = require('@opentelemetry/sdk-node');
+    const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
+    const { Resource } = require('@opentelemetry/resources');
+    const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+
+    const sdk = new NodeSDK({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: 'my-nodejs-service',
+      }),
+      traceExporter: new OTLPTraceExporter({
+        url: 'jaeger-collector.observability.svc.cluster.local:4317',
+      }),
+    });
+
+    sdk.start();
+
+  go-example.go: |
+    // Go application instrumentation with OpenTelemetry
+    package main
+
+    import (
+        "context"
+        "go.opentelemetry.io/otel"
+        "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+        "go.opentelemetry.io/otel/sdk/resource"
+        sdktrace "go.opentelemetry.io/otel/sdk/trace"
+        semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+    )
+
+    func initTracer() (*sdktrace.TracerProvider, error) {
+        exporter, err := otlptracegrpc.New(
+            context.Background(),
+            otlptracegrpc.WithEndpoint("jaeger-collector.observability.svc.cluster.local:4317"),
+            otlptracegrpc.WithInsecure(),
+        )
+        if err != nil {
+            return nil, err
+        }
+
+        tp := sdktrace.NewTracerProvider(
+            sdktrace.WithBatcher(exporter),
+            sdktrace.WithResource(resource.NewWithAttributes(
+                semconv.SchemaURL,
+                semconv.ServiceNameKey.String("my-go-service"),
+            )),
+        )
+        otel.SetTracerProvider(tp)
+        return tp, nil
+    }
+
+  deployment-sidecar.yaml: |
+    # Example deployment with Jaeger agent sidecar
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: my-traced-app
+      annotations:
+        sidecar.jaegertracing.io/inject: "true"  # Auto-inject Jaeger agent
+    spec:
+      template:
+        spec:
+          containers:
+            - name: app
+              image: my-app:latest
+              env:
+                # Configure app to send traces to localhost (sidecar agent)
+                - name: JAEGER_AGENT_HOST
+                  value: localhost
+                - name: JAEGER_AGENT_PORT
+                  value: "6831"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://localhost:4317

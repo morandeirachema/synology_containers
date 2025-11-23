@@ -1,0 +1,288 @@
+---
+# ConfigMap with DR test scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-test-scripts
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+data:
+  dr-test.sh: |
+    #!/bin/bash
+    set -e
+
+    # DR Test Runner Script
+    # Automates disaster recovery testing and validation
+
+    echo "=================================================="
+    echo "Disaster Recovery Test - $(date)"
+    echo "=================================================="
+
+    # Configuration
+    TEST_NAMESPACE="dr-test-restore"
+    BACKUP_NAME="${BACKUP_NAME:-latest}"
+    VELERO_NAMESPACE="velero"
+    RESTORE_NAME="dr-test-$(date +%Y%m%d-%H%M%S)"
+    REPORT_FILE="/reports/dr-test-${RESTORE_NAME}.json"
+
+    # Metrics
+    START_TIME=$(date +%s)
+    ERRORS=0
+
+    # Initialize report
+    cat > "$REPORT_FILE" <<EOF
+    {
+      "test_id": "$RESTORE_NAME",
+      "start_time": "$(date -Iseconds)",
+      "backup_name": "$BACKUP_NAME",
+      "results": {
+        "phases": []
+      }
+    }
+    EOF
+
+    # Function to add phase result
+    add_phase_result() {
+      local phase=$1
+      local status=$2
+      local message=$3
+      local duration=$4
+
+      echo "Phase: $phase - $status - $message (${duration}s)"
+
+      # Append to report (simplified JSON append)
+      echo "  - Phase: $phase, Status: $status, Duration: ${duration}s" >> /reports/dr-test-summary.txt
+    }
+
+    # Phase 1: Cleanup previous test namespace
+    echo -e "\n[Phase 1] Cleaning up previous test namespace..."
+    phase_start=$(date +%s)
+
+    if kubectl get namespace "$TEST_NAMESPACE" &>/dev/null; then
+      kubectl delete namespace "$TEST_NAMESPACE" --wait=true --timeout=300s || {
+        add_phase_result "cleanup" "failed" "Failed to delete test namespace" $(($(date +%s) - phase_start))
+        ERRORS=$((ERRORS + 1))
+      }
+      sleep 10
+    fi
+
+    kubectl create namespace "$TEST_NAMESPACE" || {
+      add_phase_result "cleanup" "failed" "Failed to create test namespace" $(($(date +%s) - phase_start))
+      exit 1
+    }
+
+    add_phase_result "cleanup" "success" "Test namespace ready" $(($(date +%s) - phase_start))
+
+    # Phase 2: Find latest backup
+    echo -e "\n[Phase 2] Finding latest backup..."
+    phase_start=$(date +%s)
+
+    if [ "$BACKUP_NAME" = "latest" ]; then
+      BACKUP_NAME=$(kubectl get backups -n "$VELERO_NAMESPACE" \
+        --sort-by=.metadata.creationTimestamp \
+        -o jsonpath='{.items[-1].metadata.name}') || {
+        add_phase_result "find_backup" "failed" "No backups found" $(($(date +%s) - phase_start))
+        exit 1
+      }
+    fi
+
+    echo "Using backup: $BACKUP_NAME"
+    add_phase_result "find_backup" "success" "Backup identified: $BACKUP_NAME" $(($(date +%s) - phase_start))
+
+    # Phase 3: Create restore
+    echo -e "\n[Phase 3] Creating restore from backup..."
+    phase_start=$(date +%s)
+    RESTORE_START=$(date +%s)
+
+    cat <<EOF | kubectl apply -f - || {
+      add_phase_result "create_restore" "failed" "Failed to create restore" $(($(date +%s) - phase_start))
+      exit 1
+    }
+    apiVersion: velero.io/v1
+    kind: Restore
+    metadata:
+      name: $RESTORE_NAME
+      namespace: $VELERO_NAMESPACE
+    spec:
+      backupName: $BACKUP_NAME
+      includedNamespaces:
+        - production
+      namespaceMapping:
+        production: $TEST_NAMESPACE
+      restorePVs: true
+      preserveNodePorts: false
+    EOF
+
+    add_phase_result "create_restore" "success" "Restore created" $(($(date +%s) - phase_start))
+
+    # Phase 4: Wait for restore completion
+    echo -e "\n[Phase 4] Waiting for restore to complete..."
+    phase_start=$(date +%s)
+
+    timeout=600  # 10 minutes
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      status=$(kubectl get restore "$RESTORE_NAME" -n "$VELERO_NAMESPACE" \
+        -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+
+      if [ "$status" = "Completed" ]; then
+        RESTORE_END=$(date +%s)
+        RTO=$((RESTORE_END - RESTORE_START))
+        echo "Restore completed in ${RTO}s"
+        add_phase_result "restore_complete" "success" "RTO: ${RTO}s" $(($(date +%s) - phase_start))
+        break
+      elif [ "$status" = "Failed" ] || [ "$status" = "PartiallyFailed" ]; then
+        add_phase_result "restore_complete" "failed" "Restore failed with status: $status" $(($(date +%s) - phase_start))
+        ERRORS=$((ERRORS + 1))
+        break
+      fi
+
+      echo "Restore status: $status (${elapsed}s elapsed)"
+      sleep 10
+      elapsed=$((elapsed + 10))
+    done
+
+    if [ $elapsed -ge $timeout ]; then
+      add_phase_result "restore_complete" "failed" "Restore timeout after ${timeout}s" $(($(date +%s) - phase_start))
+      ERRORS=$((ERRORS + 1))
+    fi
+
+    # Phase 5: Validate restored resources
+    echo -e "\n[Phase 5] Validating restored resources..."
+    phase_start=$(date +%s)
+
+    # Count resources
+    deployments=$(kubectl get deployments -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+    statefulsets=$(kubectl get statefulsets -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+    services=$(kubectl get services -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+    pvcs=$(kubectl get pvc -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+
+    echo "Resources restored:"
+    echo "  - Deployments: $deployments"
+    echo "  - StatefulSets: $statefulsets"
+    echo "  - Services: $services"
+    echo "  - PVCs: $pvcs"
+
+    total_resources=$((deployments + statefulsets + services + pvcs))
+    if [ $total_resources -eq 0 ]; then
+      add_phase_result "validate_resources" "failed" "No resources restored" $(($(date +%s) - phase_start))
+      ERRORS=$((ERRORS + 1))
+    else
+      add_phase_result "validate_resources" "success" "$total_resources resources restored" $(($(date +%s) - phase_start))
+    fi
+
+    # Phase 6: Wait for pods to be ready
+    echo -e "\n[Phase 6] Waiting for pods to be ready..."
+    phase_start=$(date +%s)
+
+    timeout=300  # 5 minutes
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      total_pods=$(kubectl get pods -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+      ready_pods=$(kubectl get pods -n "$TEST_NAMESPACE" --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+
+      echo "Pods ready: ${ready_pods}/${total_pods}"
+
+      if [ $total_pods -gt 0 ] && [ $ready_pods -eq $total_pods ]; then
+        add_phase_result "pods_ready" "success" "All ${ready_pods} pods running" $(($(date +%s) - phase_start))
+        break
+      fi
+
+      sleep 10
+      elapsed=$((elapsed + 10))
+    done
+
+    if [ $elapsed -ge $timeout ]; then
+      add_phase_result "pods_ready" "warning" "Timeout: ${ready_pods}/${total_pods} pods ready" $(($(date +%s) - phase_start))
+      ERRORS=$((ERRORS + 1))
+    fi
+
+    # Phase 7: Validate PVC bindings
+    echo -e "\n[Phase 7] Validating PVC bindings..."
+    phase_start=$(date +%s)
+
+    total_pvcs=$(kubectl get pvc -n "$TEST_NAMESPACE" --no-headers 2>/dev/null | wc -l)
+    bound_pvcs=$(kubectl get pvc -n "$TEST_NAMESPACE" --field-selector=status.phase=Bound --no-headers 2>/dev/null | wc -l)
+
+    echo "PVCs bound: ${bound_pvcs}/${total_pvcs}"
+
+    if [ $total_pvcs -gt 0 ] && [ $bound_pvcs -eq $total_pvcs ]; then
+      add_phase_result "pvc_validation" "success" "All ${bound_pvcs} PVCs bound" $(($(date +%s) - phase_start))
+    else
+      add_phase_result "pvc_validation" "warning" "${bound_pvcs}/${total_pvcs} PVCs bound" $(($(date +%s) - phase_start))
+      ERRORS=$((ERRORS + 1))
+    fi
+
+    # Phase 8: Test application endpoints (if applicable)
+    echo -e "\n[Phase 8] Testing application endpoints..."
+    phase_start=$(date +%s)
+
+    # This is a basic check - customize per application
+    services_with_endpoints=$(kubectl get endpoints -n "$TEST_NAMESPACE" -o json 2>/dev/null | \
+      jq '[.items[] | select(.subsets | length > 0)] | length')
+
+    if [ "$services_with_endpoints" -gt 0 ]; then
+      add_phase_result "endpoint_test" "success" "$services_with_endpoints services have endpoints" $(($(date +%s) - phase_start))
+    else
+      add_phase_result "endpoint_test" "warning" "No service endpoints found" $(($(date +%s) - phase_start))
+    fi
+
+    # Final Report
+    END_TIME=$(date +%s)
+    TOTAL_DURATION=$((END_TIME - START_TIME))
+
+    echo -e "\n=================================================="
+    echo "DR Test Summary"
+    echo "=================================================="
+    echo "Test ID: $RESTORE_NAME"
+    echo "Duration: ${TOTAL_DURATION}s"
+    echo "RTO (Recovery Time Objective): ${RTO:-N/A}s"
+    echo "Errors: $ERRORS"
+    echo "Status: $([ $ERRORS -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+    echo "Report: $REPORT_FILE"
+    echo "=================================================="
+
+    # Write summary to report
+    cat >> "$REPORT_FILE" <<EOF
+    ,
+      "end_time": "$(date -Iseconds)",
+      "total_duration": $TOTAL_DURATION,
+      "rto_seconds": ${RTO:-0},
+      "errors": $ERRORS,
+      "status": "$([ $ERRORS -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+    }
+    EOF
+
+    # Exit with error code if tests failed
+    exit $ERRORS
+---
+# ConfigMap for test configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-test-config
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+data:
+  # Test configuration
+  test.yaml: |
+    # DR Test Configuration
+    backup_name: "latest"  # or specify backup name
+    test_namespace: "dr-test-restore"
+    velero_namespace: "velero"
+
+    # Timeout settings (seconds)
+    restore_timeout: 600
+    pod_ready_timeout: 300
+
+    # Validation checks
+    validate_resources: true
+    validate_pods: true
+    validate_pvcs: true
+    validate_endpoints: true
+
+    # Cleanup after test
+    cleanup_on_success: false  # Keep namespace for manual inspection
+    cleanup_on_failure: false

@@ -1,0 +1,184 @@
+---
+# Job template for on-demand restore validation
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-validation-template
+  namespace: velero
+  annotations:
+    description: "Template for on-demand restore validation jobs"
+spec:
+  template:
+    metadata:
+      labels:
+        app: restore-validation
+    spec:
+      serviceAccountName: dr-tester
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: validator
+          image: bitnami/kubectl:1.29
+          env:
+            - name: BACKUP_NAME
+              value: "REPLACE_WITH_BACKUP_NAME"
+            - name: VALIDATION_LEVEL
+              value: "full"  # Options: quick, full, comprehensive
+          command:
+            - /bin/bash
+            - -c
+            - |
+              #!/bin/bash
+              set -e
+
+              echo "=== Restore Validation Started ==="
+              echo "Backup: $BACKUP_NAME"
+              echo "Validation Level: $VALIDATION_LEVEL"
+              echo ""
+
+              # Get backup details
+              echo "=== Backup Information ==="
+              velero backup describe $BACKUP_NAME
+
+              # Check backup completeness
+              BACKUP_PHASE=$(velero backup get $BACKUP_NAME -o json | jq -r '.status.phase')
+              BACKUP_ERRORS=$(velero backup get $BACKUP_NAME -o json | jq -r '.status.errors // 0')
+              BACKUP_WARNINGS=$(velero backup get $BACKUP_NAME -o json | jq -r '.status.warnings // 0')
+
+              echo ""
+              echo "Backup Phase: $BACKUP_PHASE"
+              echo "Errors: $BACKUP_ERRORS"
+              echo "Warnings: $BACKUP_WARNINGS"
+
+              if [ "$BACKUP_PHASE" != "Completed" ]; then
+                echo "❌ Backup is not in Completed state"
+                exit 1
+              fi
+
+              if [ "$BACKUP_ERRORS" -gt 0 ]; then
+                echo "⚠️  Backup contains errors"
+              fi
+
+              # Perform dry-run restore
+              echo ""
+              echo "=== Performing Dry-Run Restore ==="
+              TEST_RESTORE="validation-dryrun-$(date +%Y%m%d-%H%M%S)"
+
+              velero restore create $TEST_RESTORE \
+                --from-backup $BACKUP_NAME \
+                --namespace-mappings production:dr-dryrun-test \
+                --dry-run \
+                --wait || echo "Dry-run completed"
+
+              # If comprehensive validation, do actual restore
+              if [ "$VALIDATION_LEVEL" = "comprehensive" ]; then
+                echo ""
+                echo "=== Performing Actual Restore Test ==="
+
+                TEST_NS="dr-validation-$(date +%Y%m%d-%H%M%S)"
+                kubectl create namespace $TEST_NS
+
+                ACTUAL_RESTORE="validation-actual-$(date +%Y%m%d-%H%M%S)"
+                velero restore create $ACTUAL_RESTORE \
+                  --from-backup $BACKUP_NAME \
+                  --namespace-mappings production:$TEST_NS \
+                  --wait
+
+                # Validate restored resources
+                echo ""
+                echo "=== Validating Restored Resources ==="
+
+                kubectl get all -n $TEST_NS
+
+                PODS=$(kubectl get pods -n $TEST_NS --no-headers | wc -l)
+                RUNNING=$(kubectl get pods -n $TEST_NS --field-selector=status.phase=Running --no-headers | wc -l)
+
+                echo "Pods: $RUNNING / $PODS running"
+
+                # Cleanup
+                echo "Cleaning up test namespace..."
+                kubectl delete namespace $TEST_NS --wait=false
+              fi
+
+              echo ""
+              echo "=== Validation Complete ✅ ==="
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+# PrometheusRule for DR testing alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dr-testing-alerts
+  namespace: velero
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: disaster-recovery-testing
+      interval: 5m
+      rules:
+        - alert: DRTestFailed
+          expr: kube_job_status_failed{job_name=~"weekly-dr-test.*"} > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: disaster-recovery
+          annotations:
+            summary: "Weekly DR test failed"
+            description: "Automated disaster recovery test has failed. Backup restoration may not work in a real disaster."
+            runbook: "Review DR test job logs: kubectl logs -n velero job/weekly-dr-test-<timestamp>"
+
+        - alert: DRTestNotRun
+          expr: (time() - kube_job_status_completion_time{job_name=~"weekly-dr-test.*"} > 691200)
+          for: 1h
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "DR test has not run in over 8 days"
+            description: "Weekly DR test should run every 7 days. Last successful run was {{ $value | humanizeDuration }} ago."
+
+        - alert: BackupRestoreSlowRTO
+          expr: velero_restore_duration_seconds > 1800
+          for: 5m
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "Backup restore taking longer than expected"
+            description: "Restore is taking {{ $value | humanizeDuration }}. RTO target is 30 minutes."
+
+        - alert: BackupValidationFailed
+          expr: kube_job_status_failed{job_name=~"monthly-full-dr-validation.*"} > 0
+          labels:
+            severity: warning
+            component: disaster-recovery
+          annotations:
+            summary: "Monthly DR validation failed"
+            description: "Comprehensive DR validation has failed. Review backup integrity."

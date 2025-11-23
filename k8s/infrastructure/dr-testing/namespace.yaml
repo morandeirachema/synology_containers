@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dr-testing
+  labels:
+    name: dr-testing
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+# Namespace for DR test restores
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dr-test-restore
+  labels:
+    name: dr-test-restore
+    purpose: disaster-recovery-testing
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

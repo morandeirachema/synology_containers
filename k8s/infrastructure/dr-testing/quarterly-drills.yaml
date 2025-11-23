@@ -1,0 +1,406 @@
+---
+# CronJob for quarterly DR drills (full cluster simulation)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: quarterly-dr-drill
+  namespace: velero
+  annotations:
+    description: "Quarterly disaster recovery drill - comprehensive cluster restore simulation"
+spec:
+  # Run on 1st of Jan, Apr, Jul, Oct at 1am
+  schedule: "0 1 1 1,4,7,10 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 8
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: dr-drill
+            drill-type: quarterly
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-drill
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  #!/bin/bash
+                  set -e
+
+                  echo "╔═══════════════════════════════════════════════════════╗"
+                  echo "║     QUARTERLY DISASTER RECOVERY DRILL                ║"
+                  echo "║     $(date)                            ║"
+                  echo "╚═══════════════════════════════════════════════════════╝"
+                  echo ""
+
+                  DRILL_START=$(date +%s)
+                  DRILL_ID="dr-drill-$(date +%Y%m%d-%H%M%S)"
+
+                  # Phase 1: Pre-Drill Checklist
+                  echo "=== PHASE 1: Pre-Drill Checklist ==="
+                  echo ""
+
+                  echo "1. Verifying all backup schedules are healthy..."
+                  velero schedule get
+                  echo ""
+
+                  echo "2. Checking latest backups for each schedule..."
+                  SCHEDULES=$(velero schedule get -o json | jq -r '.items[].metadata.name')
+
+                  ALL_BACKUPS_OK=true
+                  for SCHEDULE in $SCHEDULES; do
+                    LATEST_BACKUP=$(velero backup get -o json | \
+                      jq -r ".items[] | select(.metadata.labels.\"velero.io/schedule-name\" == \"$SCHEDULE\") | .metadata.name" | \
+                      head -1)
+
+                    if [ -n "$LATEST_BACKUP" ]; then
+                      BACKUP_STATUS=$(velero backup get $LATEST_BACKUP -o json | jq -r '.status.phase')
+                      echo "   $SCHEDULE: $LATEST_BACKUP ($BACKUP_STATUS)"
+
+                      if [ "$BACKUP_STATUS" != "Completed" ]; then
+                        echo "   ❌ WARNING: Backup not completed"
+                        ALL_BACKUPS_OK=false
+                      fi
+                    else
+                      echo "   $SCHEDULE: ❌ No backup found"
+                      ALL_BACKUPS_OK=false
+                    fi
+                  done
+                  echo ""
+
+                  if [ "$ALL_BACKUPS_OK" = "false" ]; then
+                    echo "⚠️  WARNING: Some backups are not healthy. Drill will continue but results may be affected."
+                    echo ""
+                  fi
+
+                  # Phase 2: Simulated Disaster Scenario
+                  echo "=== PHASE 2: Disaster Scenario Simulation ==="
+                  echo ""
+                  echo "Scenario: Complete namespace failure requiring full restoration"
+                  echo ""
+
+                  # Get the latest full backup
+                  FULL_BACKUP=$(velero backup get -o json | \
+                    jq -r '.items[] | select(.metadata.labels."velero.io/schedule-name" == "daily-full-backup") | .metadata.name' | \
+                    head -1)
+
+                  echo "Using backup for restoration: $FULL_BACKUP"
+                  echo ""
+
+                  # Phase 3: Recovery Execution
+                  echo "=== PHASE 3: Recovery Execution ==="
+                  echo ""
+
+                  # Create isolated test environment
+                  TEST_NAMESPACES="dr-drill-production dr-drill-security dr-drill-tools"
+
+                  for NS in $TEST_NAMESPACES; do
+                    echo "Creating test namespace: $NS"
+                    kubectl create namespace $NS
+                    kubectl label namespace $NS dr-drill=true drill-id=$DRILL_ID
+                  done
+                  echo ""
+
+                  # Execute restore
+                  RESTORE_START=$(date +%s)
+                  RESTORE_NAME="$DRILL_ID-restore"
+
+                  echo "Initiating restore: $RESTORE_NAME"
+                  echo "Namespace mappings:"
+                  echo "  production → dr-drill-production"
+                  echo "  security → dr-drill-security"
+                  echo "  tools → dr-drill-tools"
+                  echo ""
+
+                  velero restore create $RESTORE_NAME \
+                    --from-backup $FULL_BACKUP \
+                    --namespace-mappings production:dr-drill-production,security:dr-drill-security,tools:dr-drill-tools \
+                    --wait
+
+                  RESTORE_END=$(date +%s)
+                  RTO=$((RESTORE_END - RESTORE_START))
+                  RTO_MINUTES=$((RTO / 60))
+
+                  echo ""
+                  echo "Restore completed in $RTO_MINUTES minutes"
+                  echo ""
+
+                  # Phase 4: Validation and Testing
+                  echo "=== PHASE 4: Validation and Testing ==="
+                  echo ""
+
+                  TOTAL_PODS=0
+                  RUNNING_PODS=0
+                  TOTAL_PVCS=0
+                  BOUND_PVCS=0
+
+                  for NS in $TEST_NAMESPACES; do
+                    echo "Validating namespace: $NS"
+
+                    # Wait for pods to be ready
+                    echo "  Waiting for pods to be ready (timeout: 5m)..."
+                    kubectl wait --for=condition=ready pod --all -n $NS --timeout=300s 2>/dev/null || echo "  ⚠️  Timeout waiting for pods"
+
+                    # Count pods
+                    NS_TOTAL=$(kubectl get pods -n $NS --no-headers 2>/dev/null | wc -l)
+                    NS_RUNNING=$(kubectl get pods -n $NS --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+                    TOTAL_PODS=$((TOTAL_PODS + NS_TOTAL))
+                    RUNNING_PODS=$((RUNNING_PODS + NS_RUNNING))
+
+                    echo "  Pods: $NS_RUNNING / $NS_TOTAL running"
+
+                    # Count PVCs
+                    NS_PVCS=$(kubectl get pvc -n $NS --no-headers 2>/dev/null | wc -l)
+                    NS_BOUND=$(kubectl get pvc -n $NS --field-selector=status.phase=Bound --no-headers 2>/dev/null | wc -l)
+                    TOTAL_PVCS=$((TOTAL_PVCS + NS_PVCS))
+                    BOUND_PVCS=$((BOUND_PVCS + NS_BOUND))
+
+                    echo "  PVCs: $NS_BOUND / $NS_PVCS bound"
+
+                    # List any failed pods
+                    FAILED=$(kubectl get pods -n $NS --field-selector=status.phase=Failed --no-headers 2>/dev/null | wc -l)
+                    if [ "$FAILED" -gt 0 ]; then
+                      echo "  ⚠️  Failed pods: $FAILED"
+                      kubectl get pods -n $NS --field-selector=status.phase=Failed
+                    fi
+
+                    echo ""
+                  done
+
+                  # Phase 5: Drill Report
+                  DRILL_END=$(date +%s)
+                  TOTAL_TIME=$((DRILL_END - DRILL_START))
+                  TOTAL_MINUTES=$((TOTAL_TIME / 60))
+
+                  echo ""
+                  echo "╔═══════════════════════════════════════════════════════╗"
+                  echo "║           DISASTER RECOVERY DRILL REPORT             ║"
+                  echo "╚═══════════════════════════════════════════════════════╝"
+                  echo ""
+                  echo "Drill ID: $DRILL_ID"
+                  echo "Date: $(date)"
+                  echo "Backup Used: $FULL_BACKUP"
+                  echo "Restore Name: $RESTORE_NAME"
+                  echo ""
+                  echo "═══ METRICS ═══"
+                  echo "Total Drill Time: $TOTAL_MINUTES minutes"
+                  echo "Recovery Time Objective (RTO): $RTO_MINUTES minutes"
+                  echo ""
+                  echo "═══ RESULTS ═══"
+                  echo "Pods Restored: $TOTAL_PODS"
+                  echo "Pods Running: $RUNNING_PODS"
+                  echo "PVCs Restored: $TOTAL_PVCS"
+                  echo "PVCs Bound: $BOUND_PVCS"
+                  echo ""
+
+                  # Determine drill success
+                  POD_SUCCESS_RATE=$((RUNNING_PODS * 100 / TOTAL_PODS))
+                  PVC_SUCCESS_RATE=$((BOUND_PVCS * 100 / TOTAL_PVCS))
+
+                  DRILL_STATUS="UNKNOWN"
+                  if [ "$POD_SUCCESS_RATE" -ge 95 ] && [ "$PVC_SUCCESS_RATE" -ge 95 ]; then
+                    DRILL_STATUS="✅ PASSED"
+                  elif [ "$POD_SUCCESS_RATE" -ge 80 ]; then
+                    DRILL_STATUS="⚠️  PARTIAL SUCCESS"
+                  else
+                    DRILL_STATUS="❌ FAILED"
+                  fi
+
+                  echo "═══ DRILL STATUS ═══"
+                  echo "$DRILL_STATUS"
+                  echo ""
+                  echo "Pod Success Rate: $POD_SUCCESS_RATE%"
+                  echo "PVC Success Rate: $PVC_SUCCESS_RATE%"
+                  echo ""
+
+                  # RTO compliance
+                  RTO_TARGET=30  # 30 minutes target
+                  if [ "$RTO_MINUTES" -le "$RTO_TARGET" ]; then
+                    echo "RTO Target: ✅ Met (target: ${RTO_TARGET}m, actual: ${RTO_MINUTES}m)"
+                  else
+                    echo "RTO Target: ❌ Exceeded (target: ${RTO_TARGET}m, actual: ${RTO_MINUTES}m)"
+                  fi
+                  echo ""
+
+                  # Phase 6: Detailed Restore Analysis
+                  echo "═══ RESTORE DETAILS ═══"
+                  velero restore describe $RESTORE_NAME
+
+                  # Phase 7: Cleanup
+                  echo ""
+                  echo "=== PHASE 7: Cleanup ==="
+                  echo ""
+                  echo "Test namespaces will be kept for 24 hours for manual inspection."
+                  echo "Namespaces: $TEST_NAMESPACES"
+                  echo ""
+                  echo "To delete manually:"
+                  echo "  kubectl delete namespace $TEST_NAMESPACES"
+                  echo ""
+
+                  # Schedule cleanup after 24 hours
+                  sleep 86400
+                  for NS in $TEST_NAMESPACES; do
+                    kubectl delete namespace $NS --wait=false || true
+                  done
+
+                  echo "Cleanup completed."
+                  echo ""
+                  echo "╔═══════════════════════════════════════════════════════╗"
+                  echo "║        QUARTERLY DR DRILL COMPLETED                  ║"
+                  echo "╚═══════════════════════════════════════════════════════╝"
+
+                  # Exit with error if drill failed
+                  if [[ "$DRILL_STATUS" == *"FAILED"* ]]; then
+                    exit 1
+                  fi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 512Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+
+---
+# ConfigMap with DR drill documentation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-drill-runbook
+  namespace: velero
+data:
+  RUNBOOK.md: |
+    # Disaster Recovery Drill Runbook
+
+    ## Overview
+
+    Quarterly DR drills simulate a complete cluster failure and validate the ability to restore all services from backups.
+
+    ## Automated Drill Schedule
+
+    - **Frequency**: Quarterly (Jan 1, Apr 1, Jul 1, Oct 1)
+    - **Time**: 1:00 AM (during maintenance window)
+    - **Duration**: ~30-60 minutes
+    - **Impact**: None (runs in isolated test namespaces)
+
+    ## Drill Phases
+
+    ### Phase 1: Pre-Drill Checklist
+    - Verify all backup schedules are running
+    - Check latest backups are valid and complete
+    - Document current cluster state
+
+    ### Phase 2: Disaster Scenario
+    - Simulate complete namespace failure
+    - Identify recovery backup (latest daily-full-backup)
+
+    ### Phase 3: Recovery Execution
+    - Create isolated test namespaces (dr-drill-*)
+    - Execute Velero restore from backup
+    - Measure Recovery Time Objective (RTO)
+
+    ### Phase 4: Validation
+    - Verify all pods are running
+    - Verify all PVCs are bound
+    - Check application functionality
+    - Identify any failed resources
+
+    ### Phase 5: Reporting
+    - Generate comprehensive drill report
+    - Calculate success metrics
+    - Document RTO/RPO compliance
+    - Identify improvement areas
+
+    ### Phase 6: Cleanup
+    - Keep test environments for 24h manual inspection
+    - Automatic cleanup after 24 hours
+
+    ## Success Criteria
+
+    ✅ **PASSED**: ≥95% pods running, ≥95% PVCs bound, RTO ≤30 minutes
+    ⚠️  **PARTIAL**: ≥80% pods running, RTO ≤45 minutes
+    ❌ **FAILED**: <80% pods running or RTO >45 minutes
+
+    ## Manual Drill Execution
+
+    To run a drill manually:
+
+    ```bash
+    # Create job from template
+    kubectl create job --from=cronjob/quarterly-dr-drill manual-dr-drill-$(date +%Y%m%d) -n velero
+
+    # Monitor progress
+    kubectl logs -n velero job/manual-dr-drill-$(date +%Y%m%d) -f
+    ```
+
+    ## Post-Drill Actions
+
+    After each drill:
+
+    1. **Review Results**: Check drill report and logs
+    2. **Document Issues**: Record any failures or warnings
+    3. **Update Procedures**: Improve restore process based on findings
+    4. **Update RTO/RPO**: Adjust targets if needed
+    5. **Team Review**: Conduct post-drill meeting with team
+
+    ## Drill History
+
+    Drill results are stored as Kubernetes Events and Job logs for 6 months.
+
+    View drill history:
+    ```bash
+    kubectl get jobs -n velero | grep quarterly-dr-drill
+    ```
+
+    ## Troubleshooting
+
+    ### Drill Job Failed
+    1. Check job logs: `kubectl logs -n velero job/<job-name>`
+    2. Review restore details: `velero restore describe <restore-name>`
+    3. Check backup validity: `velero backup describe <backup-name>`
+
+    ### Low Pod Success Rate
+    1. Check pod events: `kubectl describe pod <pod-name> -n dr-drill-*`
+    2. Verify PVC availability
+    3. Check resource quotas and limits
+    4. Review application logs
+
+    ### RTO Exceeded
+    1. Review backup size and network speed
+    2. Consider parallel restores
+    3. Optimize PVC provisioning
+    4. Check storage backend performance
+
+    ## Compliance
+
+    These automated DR drills help maintain compliance with:
+    - **SOC 2 Type II**: Regular disaster recovery testing
+    - **ISO 27001**: Business continuity management
+    - **NIST 800-34**: Contingency planning

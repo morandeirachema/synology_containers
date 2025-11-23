@@ -1,0 +1,159 @@
+---
+# CronJob for automated vulnerability scans
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan-all-images
+  namespace: trivy-system
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: trivy-scanner
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Triggering vulnerability scans for all workloads..."
+
+                  # Annotate all deployments to trigger re-scan
+                  for ns in production security tools traefik infrastructure; do
+                    kubectl -n $ns get deploy -o name | xargs -I {} kubectl -n $ns annotate {} trivy-operator.scan/timestamp=$(date +%s) --overwrite || true
+                    kubectl -n $ns get statefulset -o name | xargs -I {} kubectl -n $ns annotate {} trivy-operator.scan/timestamp=$(date +%s) --overwrite || true
+                  done
+
+                  echo "Scan trigger completed"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+
+---
+# ConfigMap with vulnerability policies
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-policies
+  namespace: trivy-system
+data:
+  # Policy: Block CRITICAL vulnerabilities
+  block-critical.yaml: |
+    apiVersion: aquasecurity.github.io/v1alpha1
+    kind: VulnerabilityPolicy
+    metadata:
+      name: block-critical-vulnerabilities
+    spec:
+      severity: CRITICAL
+      action: BLOCK
+      message: "Deployment blocked: CRITICAL vulnerabilities detected"
+
+  # Policy: Warn on HIGH vulnerabilities
+  warn-high.yaml: |
+    apiVersion: aquasecurity.github.io/v1alpha1
+    kind: VulnerabilityPolicy
+    metadata:
+      name: warn-high-vulnerabilities
+    spec:
+      severity: HIGH
+      action: WARN
+      message: "Warning: HIGH severity vulnerabilities detected"
+
+  # Policy: Scan exclusions
+  exclusions.yaml: |
+    # Exclude specific CVEs that are false positives or accepted risk
+    excludedCVEs:
+      # Example: exclude specific CVE with justification
+      # - CVE-2023-12345  # False positive in alpine base image
+
+    # Exclude specific packages
+    excludedPackages: []
+
+---
+# Secret for Trivy database cache (optional, for air-gapped environments)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trivy-db-cache
+  namespace: trivy-system
+type: Opaque
+stringData:
+  # Leave empty for online mode (automatic database updates)
+  # For air-gapped mode, mount pre-downloaded database
+  database: ""
+
+---
+# NetworkPolicy for Trivy Operator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  podSelector:
+    matchLabels:
+      app: trivy-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow HTTPS for Trivy database updates
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow Kubernetes API access
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 6443

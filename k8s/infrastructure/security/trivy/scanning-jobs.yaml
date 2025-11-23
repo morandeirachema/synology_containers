@@ -1,0 +1,296 @@
+---
+# Periodic image scanning for existing workloads
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan-production
+  namespace: trivy-system
+  labels:
+    app: trivy-scanner
+    target: production
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400  # 24 hours
+      template:
+        metadata:
+          labels:
+            app: trivy-scanner
+            target: production
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: scanner
+              image: aquasec/trivy:0.50.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  #!/bin/sh
+                  set -e
+
+                  echo "Starting vulnerability scan for production namespace..."
+
+                  # Get all container images in production namespace
+                  kubectl get pods -n production -o jsonpath='{.items[*].spec.containers[*].image}' | \
+                    tr ' ' '\n' | sort -u | while read image; do
+
+                    if [ -z "$image" ]; then
+                      continue
+                    fi
+
+                    echo "Scanning image: $image"
+
+                    # Scan image
+                    trivy image \
+                      --severity CRITICAL,HIGH,MEDIUM \
+                      --ignore-unfixed=false \
+                      --format json \
+                      --output "/reports/$(echo $image | tr '/:' '_').json" \
+                      "$image" || echo "Failed to scan $image"
+
+                    # Also generate table format for readability
+                    trivy image \
+                      --severity CRITICAL,HIGH \
+                      --ignore-unfixed=false \
+                      --format table \
+                      "$image" || echo "Failed to scan $image"
+                  done
+
+                  echo "Scan completed. Reports saved to /reports/"
+
+                  # Count critical/high vulnerabilities
+                  CRITICAL_COUNT=$(find /reports -name "*.json" -exec jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' {} \; | awk '{s+=$1} END {print s}')
+                  HIGH_COUNT=$(find /reports -name "*.json" -exec jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' {} \; | awk '{s+=$1} END {print s}')
+
+                  echo "Total CRITICAL vulnerabilities: ${CRITICAL_COUNT:-0}"
+                  echo "Total HIGH vulnerabilities: ${HIGH_COUNT:-0}"
+
+                  # Exit with error if critical vulnerabilities found
+                  if [ "${CRITICAL_COUNT:-0}" -gt 0 ]; then
+                    echo "ERROR: Critical vulnerabilities detected!"
+                    exit 1
+                  fi
+              env:
+                - name: TRIVY_SEVERITY
+                  value: "CRITICAL,HIGH,MEDIUM"
+                - name: TRIVY_TIMEOUT
+                  value: "10m"
+                - name: TRIVY_IGNORE_UNFIXED
+                  value: "false"
+                - name: TRIVY_DB_REPOSITORY
+                  value: "ghcr.io/aquasecurity/trivy-db"
+                - name: TRIVY_JAVA_DB_REPOSITORY
+                  value: "ghcr.io/aquasecurity/trivy-java-db"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: reports
+                  mountPath: /reports
+                - name: cache
+                  mountPath: /tmp/trivy
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: reports
+              emptyDir: {}
+            - name: cache
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir: {}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan-security
+  namespace: trivy-system
+  labels:
+    app: trivy-scanner
+    target: security
+spec:
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: trivy-scanner
+            target: security
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: scanner
+              image: aquasec/trivy:0.50.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  #!/bin/sh
+                  set -e
+                  echo "Scanning security namespace..."
+                  kubectl get pods -n security -o jsonpath='{.items[*].spec.containers[*].image}' | \
+                    tr ' ' '\n' | sort -u | while read image; do
+                    [ -z "$image" ] && continue
+                    echo "Scanning: $image"
+                    trivy image --severity CRITICAL,HIGH --ignore-unfixed=false "$image" || true
+                  done
+              env:
+                - name: TRIVY_SEVERITY
+                  value: "CRITICAL,HIGH,MEDIUM"
+                - name: TRIVY_TIMEOUT
+                  value: "10m"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: cache
+                  mountPath: /tmp/trivy
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: cache
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir: {}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan-infrastructure
+  namespace: trivy-system
+  labels:
+    app: trivy-scanner
+    target: infrastructure
+spec:
+  schedule: "0 4 * * 0"  # Weekly on Sunday at 4 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: trivy-scanner
+            target: infrastructure
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: scanner
+              image: aquasec/trivy:0.50.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  #!/bin/sh
+                  set -e
+                  echo "Scanning infrastructure components..."
+                  for ns in traefik argocd cilium metallb-system cert-manager; do
+                    echo "Scanning namespace: $ns"
+                    kubectl get pods -n $ns -o jsonpath='{.items[*].spec.containers[*].image}' 2>/dev/null | \
+                      tr ' ' '\n' | sort -u | while read image; do
+                      [ -z "$image" ] && continue
+                      echo "Scanning: $image"
+                      trivy image --severity CRITICAL,HIGH --ignore-unfixed=false "$image" || true
+                    done
+                  done
+              env:
+                - name: TRIVY_SEVERITY
+                  value: "CRITICAL,HIGH"
+                - name: TRIVY_TIMEOUT
+                  value: "15m"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: cache
+                  mountPath: /tmp/trivy
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: cache
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir: {}

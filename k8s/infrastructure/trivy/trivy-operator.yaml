@@ -1,0 +1,184 @@
+---
+# Trivy Operator Helm Repository (use with ArgoCD or Helm)
+# helm repo add aqua https://aquasecurity.github.io/helm-charts/
+# helm install trivy-operator aqua/trivy-operator --namespace trivy-system --create-namespace
+
+# ServiceAccount for Trivy Operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+
+---
+# ClusterRole for Trivy Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trivy-operator
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods", "replicationcontrollers", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["vulnerabilityreports", "configauditreports", "clusterconfigauditreports", "rbacassessmentreports", "clusterrbacassessmentreports"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+# ClusterRoleBinding for Trivy Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trivy-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trivy-operator
+subjects:
+  - kind: ServiceAccount
+    name: trivy-operator
+    namespace: trivy-system
+
+---
+# ConfigMap for Trivy Operator configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-operator-config
+  namespace: trivy-system
+data:
+  # Scan job timeout
+  scanJob.timeout: "5m"
+
+  # Scan job resources
+  scanJob.requests.cpu: "100m"
+  scanJob.requests.memory: "100Mi"
+  scanJob.limits.cpu: "500m"
+  scanJob.limits.memory: "500Mi"
+
+  # Vulnerability scanner settings
+  vulnerabilityReports.scanner: "Trivy"
+
+  # Severity levels to report (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN)
+  vulnerabilityReports.severity: "CRITICAL,HIGH,MEDIUM"
+
+  # Scan all namespaces (or specify: production,security,tools)
+  vulnerabilityReports.scanNamespaces: "production,security,tools,traefik,infrastructure"
+
+  # Compliance reports
+  compliance.failEntriesLimit: "10"
+
+  # Node collector settings
+  nodeCollector.volumeMounts.hostPath: "/var/lib"
+
+---
+# Deployment for Trivy Operator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+  labels:
+    app: trivy-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trivy-operator
+  template:
+    metadata:
+      labels:
+        app: trivy-operator
+    spec:
+      serviceAccountName: trivy-operator
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trivy-operator
+          image: aquasec/trivy-operator:0.20.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OPERATOR_LOG_LEVEL
+              value: "info"
+            - name: OPERATOR_SCAN_JOB_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-operator-config
+                  key: scanJob.timeout
+            - name: OPERATOR_VULNERABILITY_SCANNER_SCAN_ONLY_CURRENT_REVISIONS
+              value: "true"
+            - name: OPERATOR_CONFIG_AUDIT_SCANNER_SCAN_ONLY_CURRENT_REVISIONS
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+# Service for Trivy Operator metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-operator-metrics
+  namespace: trivy-system
+  labels:
+    app: trivy-operator
+spec:
+  selector:
+    app: trivy-operator
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+# ServiceMonitor for Prometheus integration
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+spec:
+  selector:
+    matchLabels:
+      app: trivy-operator
+  endpoints:
+    - port: metrics
+      interval: 60s
+      path: /metrics

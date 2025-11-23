@@ -1,0 +1,193 @@
+---
+# Jaeger All-in-One instance with persistent storage
+# Suitable for small clusters (2 nodes)
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: jaeger
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  strategy: allInOne
+
+  allInOne:
+    image: jaegertracing/all-in-one:1.54.0
+
+    options:
+      log-level: info
+      query:
+        base-path: /jaeger
+      collector:
+        zipkin:
+          host-port: ":9411"
+
+    # Metrics
+    metricsStorage:
+      type: prometheus
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # Security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+
+    # Container security
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: false  # Jaeger needs to write to /tmp
+      runAsNonRoot: true
+      runAsUser: 65534
+      seccompProfile:
+        type: RuntimeDefault
+
+  # Storage configuration
+  storage:
+    type: badger
+    options:
+      badger:
+        ephemeral: false
+        directory-key: /badger/key
+        directory-value: /badger/data
+
+    # Volume for persistent storage
+    volumeMounts:
+      - name: badger-data
+        mountPath: /badger
+
+    volumes:
+      - name: badger-data
+        persistentVolumeClaim:
+          claimName: jaeger-badger
+
+  # Agent configuration (for apps using Jaeger agent)
+  agent:
+    strategy: DaemonSet
+    image: jaegertracing/jaeger-agent:1.54.0
+
+    options:
+      log-level: info
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      fsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      seccompProfile:
+        type: RuntimeDefault
+
+  # Annotations for Prometheus scraping
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "14269"
+
+  # Ingress configuration
+  ingress:
+    enabled: false  # Use Traefik IngressRoute instead
+
+  # Service annotations
+  query:
+    serviceType: ClusterIP
+---
+# PersistentVolumeClaim for Jaeger storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jaeger-badger
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client  # Synology NFS storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Traefik IngressRoute for Jaeger UI
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jaeger-ui
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`jaeger.yourdomain.com`)
+      kind: Rule
+      services:
+        - name: jaeger-query
+          port: 16686
+      middlewares:
+        - name: authelia-auth
+          namespace: security
+  tls:
+    certResolver: letsencrypt
+---
+# Service for external access (if needed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector-external
+  namespace: tracing
+  labels:
+    app: jaeger
+    component: collector
+spec:
+  type: ClusterIP
+  selector:
+    app: jaeger
+    app.kubernetes.io/component: all-in-one
+  ports:
+    # HTTP collector
+    - name: http-collector
+      port: 14268
+      targetPort: 14268
+      protocol: TCP
+    # gRPC collector
+    - name: grpc-collector
+      port: 14250
+      targetPort: 14250
+      protocol: TCP
+    # Zipkin compatible
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+      protocol: TCP

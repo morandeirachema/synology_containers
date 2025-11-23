@@ -1,0 +1,262 @@
+---
+# ServiceMonitor for Jaeger Collector metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger-collector
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: collector
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+
+---
+# ServiceMonitor for Jaeger Query metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger-query
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+      app.kubernetes.io/component: query
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+
+---
+# PrometheusRule for Jaeger alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jaeger-alerts
+  namespace: observability
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: jaeger-tracing
+      interval: 5m
+      rules:
+        - alert: JaegerCollectorDown
+          expr: up{job="jaeger-collector"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: tracing
+          annotations:
+            summary: "Jaeger Collector is down"
+            description: "Jaeger Collector has been down for more than 5 minutes. Traces are not being collected."
+            runbook: "Check Jaeger Collector pods: kubectl get pods -n observability -l app.kubernetes.io/component=collector"
+
+        - alert: JaegerQueryDown
+          expr: up{job="jaeger-query"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger Query UI is down"
+            description: "Jaeger Query service is unavailable. Cannot view traces."
+
+        - alert: JaegerHighTraceDropRate
+          expr: rate(jaeger_collector_traces_dropped_total[5m]) > 10
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger is dropping traces"
+            description: "Jaeger Collector is dropping {{ $value }} traces per second. Consider scaling up."
+
+        - alert: JaegerCollectorHighMemory
+          expr: container_memory_usage_bytes{pod=~"jaeger-production-collector.*"} / container_spec_memory_limit_bytes{pod=~"jaeger-production-collector.*"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger Collector high memory usage"
+            description: "Jaeger Collector is using {{ $value | humanizePercentage }} of memory limit."
+
+        - alert: JaegerCollectorHighCPU
+          expr: rate(container_cpu_usage_seconds_total{pod=~"jaeger-production-collector.*"}[5m]) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger Collector high CPU usage"
+            description: "Jaeger Collector CPU usage is above 80%. Consider scaling up."
+
+        - alert: JaegerStorageFull
+          expr: jaeger_collector_queue_length / jaeger_collector_queue_capacity > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: tracing
+          annotations:
+            summary: "Jaeger storage queue nearly full"
+            description: "Jaeger Collector queue is {{ $value | humanizePercentage }} full. Traces may be dropped soon."
+
+---
+# Grafana Dashboard ConfigMap for Jaeger
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-dashboard
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  jaeger-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Jaeger Distributed Tracing",
+        "panels": [
+          {
+            "title": "Trace Ingestion Rate",
+            "targets": [
+              {
+                "expr": "rate(jaeger_collector_traces_received_total[5m])"
+              }
+            ]
+          },
+          {
+            "title": "Trace Drop Rate",
+            "targets": [
+              {
+                "expr": "rate(jaeger_collector_traces_dropped_total[5m])"
+              }
+            ]
+          },
+          {
+            "title": "Collector Queue Length",
+            "targets": [
+              {
+                "expr": "jaeger_collector_queue_length"
+              }
+            ]
+          },
+          {
+            "title": "Query Latency (P95)",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(jaeger_query_request_duration_seconds_bucket[5m]))"
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+---
+# Documentation ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-docs
+  namespace: observability
+data:
+  README.md: |
+    # Jaeger Distributed Tracing
+
+    ## Overview
+
+    Jaeger provides distributed tracing for microservices:
+    - End-to-end request tracking
+    - Service dependency visualization
+    - Performance bottleneck identification
+    - Root cause analysis
+
+    ## Accessing Jaeger UI
+
+    ```bash
+    # Port-forward to Jaeger Query
+    kubectl port-forward -n observability svc/jaeger-production-query 16686:16686
+
+    # Open browser
+    open http://localhost:16686
+    ```
+
+    Or access via ingress: https://jaeger.yourdomain.com
+
+    ## Instrumenting Applications
+
+    ### OpenTelemetry (Recommended)
+
+    Use OpenTelemetry SDK to instrument your applications:
+    - Sends traces to Jaeger Collector via OTLP
+    - Endpoint: `jaeger-collector.observability.svc.cluster.local:4317` (gRPC)
+    - Endpoint: `jaeger-collector.observability.svc.cluster.local:4318` (HTTP)
+
+    See examples in the `jaeger-instrumentation-examples` ConfigMap.
+
+    ### Automatic Instrumentation (Sidecar)
+
+    Add annotation to deployment for auto-injection:
+    ```yaml
+    annotations:
+      sidecar.jaegertracing.io/inject: "true"
+    ```
+
+    ## Viewing Traces
+
+    1. Open Jaeger UI
+    2. Select service from dropdown
+    3. Choose operation (or "all")
+    4. Set time range
+    5. Click "Find Traces"
+
+    ## Analyzing Performance
+
+    ### Identify Slow Operations
+    1. Sort traces by duration
+    2. Click on slow trace
+    3. View flame graph
+    4. Identify bottleneck spans
+
+    ### Service Dependencies
+    - Navigate to "Dependencies" tab
+    - View service call graph
+    - Identify circular dependencies
+
+    ## Prometheus Metrics
+
+    Jaeger exposes metrics for monitoring:
+    - `jaeger_collector_traces_received_total` - Traces ingested
+    - `jaeger_collector_traces_dropped_total` - Traces dropped
+    - `jaeger_collector_queue_length` - Current queue size
+
+    ## Troubleshooting
+
+    ### No traces appearing
+    1. Verify collector is running: `kubectl get pods -n observability`
+    2. Check application logs for OTLP export errors
+    3. Verify endpoint configuration in app
+    4. Check NetworkPolicy allows traffic from app namespace
+
+    ### High trace drop rate
+    1. Scale up collector: `kubectl scale deploy jaeger-production-collector -n observability --replicas=3`
+    2. Increase memory limits
+    3. Reduce sampling rate
+
+    ## Best Practices
+
+    1. **Sampling**: Use probabilistic sampling (10-20%) for high-traffic services
+    2. **Tagging**: Add meaningful tags (user_id, request_id, version)
+    3. **Context Propagation**: Ensure trace context is propagated in HTTP headers
+    4. **Storage**: Use Elasticsearch for production (current: in-memory)
+    5. **Retention**: Configure appropriate trace retention (7-30 days)

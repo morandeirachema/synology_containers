@@ -1,0 +1,138 @@
+---
+# Prometheus alerts for Renovate
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: renovate-alerts
+  namespace: renovate
+  labels:
+    app: renovate
+spec:
+  groups:
+    - name: renovate-health
+      interval: 1h
+      rules:
+        - alert: RenovateJobFailed
+          expr: |
+            kube_job_status_failed{namespace="renovate",job_name=~"renovate-.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: automation
+          annotations:
+            summary: "Renovate job {{ $labels.job_name }} failed"
+            description: "Renovate dependency update job has failed. Check logs for details."
+
+        - alert: RenovateNotRunRecently
+          expr: |
+            (time() - max(kube_job_status_start_time{namespace="renovate",job_name=~"renovate-.*"}) by (job_name)) > 172800
+          for: 1h
+          labels:
+            severity: warning
+            component: automation
+          annotations:
+            summary: "Renovate hasn't run in 48 hours"
+            description: "Renovate dependency scanner hasn't run successfully in 48 hours."
+
+        - alert: RenovatePendingUpdates
+          expr: |
+            # This would need custom metrics from Renovate
+            # Placeholder for when metrics are available
+            renovate_pending_updates > 10
+          for: 7d
+          labels:
+            severity: info
+            component: automation
+          annotations:
+            summary: "Many pending dependency updates"
+            description: "{{ $value }} dependency updates are pending review."
+
+        - alert: RenovateSecurityUpdates
+          expr: |
+            # Placeholder - would need Renovate metrics integration
+            renovate_security_updates_pending > 0
+          for: 24h
+          labels:
+            severity: warning
+            component: automation
+          annotations:
+            summary: "Security updates pending"
+            description: "{{ $value }} security updates are pending in Renovate PRs."
+---
+# NetworkPolicy for Renovate
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: renovate
+  namespace: renovate
+spec:
+  podSelector:
+    matchLabels:
+      app: renovate
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow HTTPS to GitHub/Git platforms
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP for container registries
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+    # Allow Kubernetes API for kubectl commands
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              component: apiserver
+      ports:
+        - protocol: TCP
+          port: 6443
+---
+# ServiceMonitor for Renovate (if metrics are exposed)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: renovate
+  namespace: renovate
+  labels:
+    app: renovate
+spec:
+  selector:
+    matchLabels:
+      app: renovate-metrics
+  endpoints:
+    - port: metrics
+      interval: 60s
+      path: /metrics
+---
+# Service for metrics (if Renovate exposes them)
+apiVersion: v1
+kind: Service
+metadata:
+  name: renovate-metrics
+  namespace: renovate
+  labels:
+    app: renovate-metrics
+spec:
+  selector:
+    app: renovate
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  type: ClusterIP

@@ -1,0 +1,81 @@
+---
+# Manual DR Test Job Template
+# Run on-demand DR tests using: kubectl create -f manual-test-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dr-test-manual-
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+    type: manual
+spec:
+  ttlSecondsAfterFinished: 86400  # Keep for 24 hours
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: dr-tester
+        type: manual
+    spec:
+      serviceAccountName: dr-tester
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dr-tester
+          image: bitnami/kubectl:1.29
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - /scripts/dr-test.sh
+          env:
+            - name: BACKUP_NAME
+              value: "latest"  # Change to specific backup if needed
+            - name: TEST_TYPE
+              value: "manual"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: reports
+              mountPath: /reports
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: dr-test-scripts
+            defaultMode: 0755
+        - name: config
+          configMap:
+            name: dr-test-config
+        - name: reports
+          persistentVolumeClaim:
+            claimName: dr-test-reports
+        - name: tmp
+          emptyDir: {}

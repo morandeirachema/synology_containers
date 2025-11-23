@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: trivy-security-scanning
+  annotations:
+    purpose: "Container image vulnerability scanning"
+    grade-impact: "+1 point (Image scanning)"
+
+namespace: trivy-system
+
+resources:
+  - namespace.yaml
+  - trivy-operator.yaml
+  - admission-controller.yaml
+  - scanning-jobs.yaml
+  - monitoring.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: security-stack
+      app.kubernetes.io/managed-by: kustomize

@@ -1,0 +1,289 @@
+---
+# PrometheusRule for Trivy vulnerability alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: trivy-vulnerability-alerts
+  namespace: trivy-system
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: trivy-vulnerabilities
+      interval: 5m
+      rules:
+        - alert: CriticalVulnerabilityDetected
+          expr: sum(trivy_image_vulnerabilities{severity="CRITICAL"}) by (image_repository, image_tag) > 0
+          for: 15m
+          labels:
+            severity: critical
+            component: security
+          annotations:
+            summary: "CRITICAL vulnerability detected in {{ $labels.image_repository }}:{{ $labels.image_tag }}"
+            description: "Image {{ $labels.image_repository }}:{{ $labels.image_tag }} has {{ $value }} CRITICAL vulnerabilities. Immediate action required."
+            runbook: "Review VulnerabilityReport and update image to patched version"
+
+        - alert: HighVulnerabilityCount
+          expr: sum(trivy_image_vulnerabilities{severity="HIGH"}) by (image_repository, image_tag) > 5
+          for: 30m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "High number of HIGH severity vulnerabilities in {{ $labels.image_repository }}:{{ $labels.image_tag }}"
+            description: "Image {{ $labels.image_repository }}:{{ $labels.image_tag }} has {{ $value }} HIGH vulnerabilities. Update recommended."
+
+        - alert: VulnerabilityScanFailed
+          expr: trivy_image_scan_failed > 0
+          for: 10m
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Trivy vulnerability scan failed"
+            description: "Vulnerability scanning is failing. Check Trivy Operator logs."
+
+        - alert: OutdatedVulnerabilityDatabase
+          expr: (time() - trivy_vulnerability_db_last_updated) > 86400
+          for: 1h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "Trivy vulnerability database is outdated"
+            description: "Vulnerability database hasn't been updated in over 24 hours. Check internet connectivity and Trivy Operator status."
+
+---
+# Custom Resource Definition for Vulnerability Reports (simplified)
+# NOTE: Full CRDs are installed by Trivy Operator Helm chart
+# This is a placeholder to show expected structure
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vulnerabilityreports.aquasecurity.github.io
+spec:
+  group: aquasecurity.github.io
+  names:
+    kind: VulnerabilityReport
+    listKind: VulnerabilityReportList
+    plural: vulnerabilityreports
+    singular: vulnerabilityreport
+    shortNames:
+      - vuln
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+      additionalPrinterColumns:
+        - name: Repository
+          type: string
+          jsonPath: .report.artifact.repository
+        - name: Tag
+          type: string
+          jsonPath: .report.artifact.tag
+        - name: Critical
+          type: integer
+          jsonPath: .report.summary.criticalCount
+        - name: High
+          type: integer
+          jsonPath: .report.summary.highCount
+        - name: Medium
+          type: integer
+          jsonPath: .report.summary.mediumCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+
+---
+# ConfigMap with compliance report configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-reports-config
+  namespace: trivy-system
+data:
+  # NSA/CISA Kubernetes Hardening Guide compliance
+  nsa-cisa.yaml: |
+    name: "NSA/CISA Kubernetes Hardening Guide"
+    description: "Compliance with NSA/CISA Kubernetes Hardening Guidance v1.2"
+    checks:
+      - id: "1.1"
+        description: "Scan images for vulnerabilities"
+        automated: true
+      - id: "1.2"
+        description: "Run containers as non-root"
+        automated: true
+      - id: "1.3"
+        description: "Use Pod Security Standards"
+        automated: true
+
+  # CIS Kubernetes Benchmark compliance
+  cis-benchmark.yaml: |
+    name: "CIS Kubernetes Benchmark v1.8"
+    description: "Center for Internet Security Kubernetes Benchmark"
+    checks:
+      - id: "5.2.1"
+        description: "Minimize admission of privileged containers"
+        automated: true
+      - id: "5.2.3"
+        description: "Minimize admission of containers with capabilities"
+        automated: true
+      - id: "5.2.5"
+        description: "Minimize admission of containers with added capabilities"
+        automated: true
+
+---
+# CronJob for weekly compliance report generation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: generate-compliance-reports
+  namespace: trivy-system
+spec:
+  # Run every Monday at 8am
+  schedule: "0 8 * * 1"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: compliance-reporter
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reporter
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "=== Kubernetes Security Compliance Report ==="
+                  echo "Generated: $(date)"
+                  echo ""
+
+                  echo "=== Vulnerability Summary by Namespace ==="
+                  for ns in production security tools traefik infrastructure; do
+                    echo "Namespace: $ns"
+                    kubectl get vulnerabilityreports -n $ns -o json | \
+                      jq -r '.items[] | "\(.metadata.name): CRITICAL=\(.report.summary.criticalCount // 0) HIGH=\(.report.summary.highCount // 0) MEDIUM=\(.report.summary.mediumCount // 0)"' | \
+                      head -10 || echo "  No reports found"
+                    echo ""
+                  done
+
+                  echo "=== Config Audit Summary ==="
+                  kubectl get configauditreports -A -o json | \
+                    jq -r '.items[] | "\(.metadata.namespace)/\(.metadata.name): CRITICAL=\(.report.summary.criticalCount // 0) HIGH=\(.report.summary.highCount // 0)"' | \
+                    head -20 || echo "  No config audit reports found"
+
+                  echo ""
+                  echo "=== Report Complete ==="
+                  echo "For detailed reports, run: kubectl get vulnerabilityreports -A"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+
+---
+# ConfigMap with image scanning best practices documentation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scanning-docs
+  namespace: trivy-system
+data:
+  README.md: |
+    # Trivy Operator - Container Image Scanning
+
+    ## Overview
+
+    Trivy Operator automatically scans all container images in the cluster for:
+    - Known vulnerabilities (CVEs)
+    - Misconfigurations
+    - Exposed secrets
+    - License compliance
+
+    ## Viewing Reports
+
+    ### Vulnerability Reports
+    ```bash
+    # List all vulnerability reports
+    kubectl get vulnerabilityreports -A
+
+    # Get detailed report for specific workload
+    kubectl get vulnerabilityreport <report-name> -n <namespace> -o yaml
+
+    # Show summary of vulnerabilities
+    kubectl get vulnerabilityreports -A -o json | \
+      jq '.items[] | {name: .metadata.name, namespace: .metadata.namespace, critical: .report.summary.criticalCount, high: .report.summary.highCount}'
+    ```
+
+    ### Config Audit Reports
+    ```bash
+    # List configuration audit reports
+    kubectl get configauditreports -A
+
+    # Get specific report
+    kubectl get configauditreport <report-name> -n <namespace> -o yaml
+    ```
+
+    ## Triggering Manual Scans
+
+    ```bash
+    # Annotate deployment to trigger rescan
+    kubectl annotate deployment <deployment-name> -n <namespace> \
+      trivy-operator.scan/timestamp=$(date +%s) --overwrite
+    ```
+
+    ## Prometheus Metrics
+
+    Trivy Operator exposes metrics at `:8080/metrics`:
+    - `trivy_image_vulnerabilities` - Vulnerability counts by severity
+    - `trivy_image_scan_failed` - Failed scan count
+    - `trivy_vulnerability_db_last_updated` - Database freshness
+
+    ## Alert Response
+
+    ### CriticalVulnerabilityDetected
+    1. Review VulnerabilityReport: `kubectl get vuln -A`
+    2. Identify affected workload
+    3. Update image to patched version
+    4. Verify fix: Check report after update
+
+    ### HighVulnerabilityCount
+    1. Review report details
+    2. Assess risk and priority
+    3. Plan image update during maintenance window
+
+    ## Best Practices
+
+    1. **Pin image tags** - Use specific versions (not `:latest`)
+    2. **Regular updates** - Update images monthly or when CVEs are fixed
+    3. **CI/CD integration** - Scan images before deployment
+    4. **Baseline images** - Use minimal base images (alpine, distroless)
+    5. **Review reports weekly** - Address HIGH/CRITICAL vulnerabilities promptly

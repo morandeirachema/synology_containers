@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: trivy-operator
+  namespace: trivy-system
+  annotations:
+    description: "Trivy Operator for container image scanning and vulnerability detection"
+
+namespace: trivy-system
+
+resources:
+  - namespace.yaml
+  - trivy-operator.yaml
+  - scan-policies.yaml
+  - compliance-reports.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: security
+  app.kubernetes.io/component: image-scanning
+  managed-by: kustomize

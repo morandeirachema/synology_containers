@@ -1,0 +1,372 @@
+---
+# Quarterly DR Test - January (Q1)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dr-test-q1
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+    quarter: q1
+spec:
+  # Run on January 15th at 3 AM (0 3 15 1 *)
+  schedule: "0 3 15 1 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    metadata:
+      labels:
+        app: dr-tester
+        quarter: q1
+    spec:
+      ttlSecondsAfterFinished: 604800  # Keep for 7 days
+      template:
+        metadata:
+          labels:
+            app: dr-tester
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-tester
+              image: bitnami/kubectl:1.29
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/dr-test.sh
+              env:
+                - name: BACKUP_NAME
+                  value: "latest"
+                - name: QUARTER
+                  value: "Q1"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: reports
+                  mountPath: /reports
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: dr-test-scripts
+                defaultMode: 0755
+            - name: config
+              configMap:
+                name: dr-test-config
+            - name: reports
+              persistentVolumeClaim:
+                claimName: dr-test-reports
+            - name: tmp
+              emptyDir: {}
+---
+# Quarterly DR Test - April (Q2)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dr-test-q2
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+    quarter: q2
+spec:
+  # Run on April 15th at 3 AM (0 3 15 4 *)
+  schedule: "0 3 15 4 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    metadata:
+      labels:
+        app: dr-tester
+        quarter: q2
+    spec:
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app: dr-tester
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-tester
+              image: bitnami/kubectl:1.29
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/dr-test.sh
+              env:
+                - name: BACKUP_NAME
+                  value: "latest"
+                - name: QUARTER
+                  value: "Q2"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: reports
+                  mountPath: /reports
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: dr-test-scripts
+                defaultMode: 0755
+            - name: config
+              configMap:
+                name: dr-test-config
+            - name: reports
+              persistentVolumeClaim:
+                claimName: dr-test-reports
+            - name: tmp
+              emptyDir: {}
+---
+# Quarterly DR Test - July (Q3)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dr-test-q3
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+    quarter: q3
+spec:
+  # Run on July 15th at 3 AM (0 3 15 7 *)
+  schedule: "0 3 15 7 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    metadata:
+      labels:
+        app: dr-tester
+        quarter: q3
+    spec:
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app: dr-tester
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-tester
+              image: bitnami/kubectl:1.29
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/dr-test.sh
+              env:
+                - name: BACKUP_NAME
+                  value: "latest"
+                - name: QUARTER
+                  value: "Q3"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: reports
+                  mountPath: /reports
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: dr-test-scripts
+                defaultMode: 0755
+            - name: config
+              configMap:
+                name: dr-test-config
+            - name: reports
+              persistentVolumeClaim:
+                claimName: dr-test-reports
+            - name: tmp
+              emptyDir: {}
+---
+# Quarterly DR Test - October (Q4)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dr-test-q4
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+    quarter: q4
+spec:
+  # Run on October 15th at 3 AM (0 3 15 10 *)
+  schedule: "0 3 15 10 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    metadata:
+      labels:
+        app: dr-tester
+        quarter: q4
+    spec:
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app: dr-tester
+        spec:
+          serviceAccountName: dr-tester
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: dr-tester
+              image: bitnami/kubectl:1.29
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/dr-test.sh
+              env:
+                - name: BACKUP_NAME
+                  value: "latest"
+                - name: QUARTER
+                  value: "Q4"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: reports
+                  mountPath: /reports
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: dr-test-scripts
+                defaultMode: 0755
+            - name: config
+              configMap:
+                name: dr-test-config
+            - name: reports
+              persistentVolumeClaim:
+                claimName: dr-test-reports
+            - name: tmp
+              emptyDir: {}
+---
+# PVC for storing DR test reports
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dr-test-reports
+  namespace: dr-testing
+  labels:
+    app: dr-tester
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 5Gi
