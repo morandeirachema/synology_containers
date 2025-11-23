@@ -10,7 +10,9 @@
 
 **A production-ready, security-hardened Docker container stack for Synology DS 224+ (16GB RAM) featuring 12 essential services optimized for privacy, productivity, and comprehensive monitoring.**
 
-[Features](#-key-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Services](#-service-catalog) • [Security](#-security--privacy) • [Support](#-support--community)
+**PLUS: A+ grade Talos Kubernetes cluster setup for cloud-native workloads running on Beelink Mini S13 nodes.**
+
+[Features](#-key-features) • [Quick Start](#-quick-start) • [Kubernetes](#-kubernetes-cluster) • [Documentation](#-documentation) • [Services](#-service-catalog) • [Security](#-security--privacy) • [Support](#-support--community)
 
 ---
 
@@ -19,6 +21,7 @@
 ## 📑 Table of Contents
 
 - [Overview](#-overview)
+- [Kubernetes Cluster](#-kubernetes-cluster)
 - [Key Features](#-key-features)
 - [Service Catalog](#-service-catalog)
 - [System Architecture](#-system-architecture)
@@ -63,6 +66,168 @@ This repository provides a **complete, production-ready Docker environment** spe
 - **Small Office**: Secure document sharing, monitoring, and remote access
 - **Development Environment**: Container management and testing platform
 - **Learning Platform**: Hands-on experience with Docker, networking, and system administration
+
+---
+
+## ☸️ Kubernetes Cluster
+
+In addition to the Docker stack, this repository includes complete documentation and configurations for deploying a **production-grade Talos Kubernetes cluster** on Beelink Mini S13 nodes (Intel N150).
+
+### Quick Overview
+
+- **Nodes**: 2x Beelink Mini S13 (1 control plane + worker, 1 worker)
+- **OS**: Talos Linux (immutable, API-managed, secure)
+- **K8s Version**: 1.29+ (upgradable via talosctl)
+- **CNI**: Cilium with eBPF for high-performance networking
+- **Storage**: Synology NAS via NFS (same NAS as Docker stack)
+- **Secrets**: CyberArk Conjur OSS for enterprise-grade secrets management
+- **GitOps**: ArgoCD for declarative deployments
+- **Observability**: Prometheus, Grafana, Loki (separate from Docker)
+- **Security**: A+ grade with network policies, pod security standards, TLS everywhere
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Your Home Network                       │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  ┌──────────────┐    ┌──────────────┐              │
+│  │ Beelink #1   │    │ Beelink #2   │              │
+│  │ (Control +   │    │ (Worker)     │              │
+│  │  Worker)     │    │              │              │
+│  │ Talos Linux  │    │ Talos Linux  │              │
+│  └──────┬───────┘    └──────┬───────┘              │
+│         │                    │                       │
+│         └────────┬───────────┘                       │
+│                  │                                   │
+│         ┌────────▼────────┐                         │
+│         │  Kubernetes API │                         │
+│         │  (VIP 192.168.  │                         │
+│         │   1.200)        │                         │
+│         └────────┬────────┘                         │
+│                  │                                   │
+│         ┌────────▼────────────┐                     │
+│         │   K8s Services      │                     │
+│         │  • Cilium (CNI)     │                     │
+│         │  • ArgoCD           │                     │
+│         │  • Prometheus       │                     │
+│         │  • Grafana          │                     │
+│         │  • Loki             │                     │
+│         │  • Conjur           │                     │
+│         │  • Your Apps        │                     │
+│         └────────┬────────────┘                     │
+│                  │ NFS Storage                       │
+│         ┌────────▼────────────┐                     │
+│         │  Synology DS 224+   │                     │
+│         │  • NFS for K8s PVs  │                     │
+│         │  • Backup storage   │                     │
+│         │  • Docker stack     │                     │
+│         │    (runs parallel)  │                     │
+│         └─────────────────────┘                     │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+### What's Included
+
+**📖 Complete Documentation** (2,500+ lines):
+- **[Talos Setup Guide](docs/TALOS_KUBERNETES_SETUP.md)**: Step-by-step installation (1,350+ lines)
+- **[K8s Architecture](docs/K8S_ARCHITECTURE.md)**: Design decisions and architecture (600+ lines)
+- **[Operations Guide](docs/K8S_OPERATIONS.md)**: Day-2 operations, upgrades, maintenance
+- **[Migration Guide](docs/K8S_MIGRATION.md)**: Which services to migrate from Docker to K8s
+
+**⚙️ Ready-to-Use Configurations**:
+- Talos node configurations (control plane + worker templates)
+- Kubernetes manifests for core infrastructure
+- Cilium CNI with eBPF networking
+- MetalLB for LoadBalancer services
+- cert-manager for automatic TLS certificates
+- NFS CSI driver for Synology storage
+- Conjur deployment for secrets management
+- External Secrets Operator integration
+- Prometheus + Grafana + Loki observability stack
+- ArgoCD for GitOps workflows
+
+**🔧 Helper Scripts**:
+- `scripts/k8s-daily-check.sh`: Daily cluster health checks
+- `scripts/k8s-backup.sh`: Comprehensive backup (etcd, configs, resources)
+- `scripts/k8s-cleanup.sh`: Clean old resources and images
+
+### Why Run Both Docker AND Kubernetes?
+
+**Docker Stack** (Synology):
+- ✅ Proven, stable, production-ready
+- ✅ Simple to manage
+- ✅ Perfect for stateful services (Nextcloud, Vaultwarden, Pi-hole)
+- ✅ Low overhead
+- ✅ Quick to deploy
+
+**Kubernetes Cluster** (Beelink):
+- ✅ Cloud-native applications
+- ✅ Microservices architecture
+- ✅ Auto-scaling capabilities
+- ✅ Rolling updates with zero downtime
+- ✅ Learning platform for K8s skills
+- ✅ Enterprise-grade orchestration
+
+**Together**: You get the best of both worlds—stability for critical services and flexibility for cloud-native workloads.
+
+### Quick Start (Kubernetes)
+
+```bash
+# 1. Review setup guide
+cat docs/TALOS_KUBERNETES_SETUP.md
+
+# 2. Boot Talos on both Beelink nodes from USB
+
+# 3. Generate and apply configurations
+cd talos
+talosctl gen config my-cluster https://192.168.1.200:6443
+# Customize controlplane.yaml and worker.yaml
+talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
+talosctl apply-config --insecure --nodes <node-ip> --file worker.yaml
+
+# 4. Bootstrap cluster
+talosctl bootstrap --nodes 192.168.1.201
+
+# 5. Get kubeconfig
+talosctl kubeconfig .
+export KUBECONFIG=$(pwd)/kubeconfig
+kubectl get nodes
+
+# 6. Install core infrastructure (see setup guide for details)
+```
+
+**Full documentation**: [Talos Kubernetes Setup Guide](docs/TALOS_KUBERNETES_SETUP.md)
+
+### Key Technologies
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **OS** | Talos Linux | Immutable, secure, API-managed |
+| **Container Runtime** | containerd | Lightweight, OCI-compliant |
+| **CNI** | Cilium | eBPF-based networking & security |
+| **Storage** | NFS CSI Driver | Synology NAS integration |
+| **Load Balancer** | MetalLB | Bare-metal LoadBalancer services |
+| **Ingress** | Cilium Ingress | High-performance ingress controller |
+| **Certificates** | cert-manager | Automatic TLS via Let's Encrypt |
+| **Secrets** | Conjur OSS | Enterprise secrets management |
+| **GitOps** | ArgoCD | Declarative deployments |
+| **Metrics** | Prometheus | Time-series monitoring |
+| **Visualization** | Grafana | Dashboards and alerts |
+| **Logging** | Loki + Promtail | Log aggregation |
+| **Backup** | Velero | Cluster and volume backups |
+
+### Benefits
+
+✅ **Security**: Talos has no SSH, no shell—API-only, immutable OS
+✅ **Zero Downtime**: Rolling updates for both Talos and Kubernetes
+✅ **Observability**: Full metrics, logs, and traces out of the box
+✅ **GitOps**: Everything in Git, ArgoCD auto-deploys
+✅ **Secrets Management**: Conjur with audit logs and policies
+✅ **Cost Effective**: Runs on affordable Beelink Mini S13 hardware
+✅ **Learning**: Gain production Kubernetes experience at home
 
 ---
 
@@ -1710,11 +1875,17 @@ docker-compose config > config.txt
 
 | Document | Description | Link |
 |----------|-------------|------|
+| **Docker Stack** | | |
 | **Setup Guide** | Step-by-step installation instructions | [docs/SETUP.md](docs/SETUP.md) |
 | **Security Hardening** | A+ security configuration guide | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Best Practices** | Production deployment guidelines | [docs/BEST_PRACTICES.md](docs/BEST_PRACTICES.md) |
 | **Troubleshooting** | Common issues and solutions | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
 | **CloudFlare Tunnel** | Secure access without port forwarding | [docs/CLOUDFLARE_TUNNEL_SETUP.md](docs/CLOUDFLARE_TUNNEL_SETUP.md) |
+| **Kubernetes Cluster** | | |
+| **Talos K8s Setup** | Complete installation guide (1,350+ lines) | [docs/TALOS_KUBERNETES_SETUP.md](docs/TALOS_KUBERNETES_SETUP.md) |
+| **K8s Architecture** | Design decisions and architecture | [docs/K8S_ARCHITECTURE.md](docs/K8S_ARCHITECTURE.md) |
+| **K8s Operations** | Day-2 operations, upgrades, maintenance | [docs/K8S_OPERATIONS.md](docs/K8S_OPERATIONS.md) |
+| **Service Migration** | Docker → Kubernetes migration guide | [docs/K8S_MIGRATION.md](docs/K8S_MIGRATION.md) |
 
 ### External Resources
 

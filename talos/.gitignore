@@ -1,0 +1,30 @@
+# Talos configuration files containing secrets
+# These files contain cluster secrets, certificates, and tokens
+# NEVER commit these to version control!
+
+# Actual configurations (secrets)
+controlplane.yaml
+worker.yaml
+talosconfig
+kubeconfig
+
+# Backups
+*.yaml.bak
+*.bak
+
+# Snapshots and exports
+*.db
+*.snapshot
+
+# Encrypted backups (if you create them)
+*.tar.gz
+*.tar.gz.gpg
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Only commit .example files!
+# controlplane.yaml.example - OK to commit
+# worker.yaml.example - OK to commit
