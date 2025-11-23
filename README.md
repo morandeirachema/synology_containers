@@ -1,12 +1,12 @@
 # Synology DS 224+ Container Stack
 
-A production-ready, security-focused container stack for Synology DS 224+ (16GB RAM) featuring 20 essential services for privacy, home automation, productivity, and monitoring.
+A production-ready, security-focused container stack for Synology DS 224+ (16GB RAM) featuring 12 essential services for privacy, productivity, and monitoring.
 
 ## 🎯 Overview
 
 This repository provides a complete Docker container setup optimized for Synology NAS, following industry best practices for security, performance, and maintainability.
 
-### 20 Essential Services
+### 12 Essential Services
 
 #### 🔒 Security & Privacy
 1. **Traefik** - Modern reverse proxy with automatic HTTPS (Let's Encrypt)
@@ -15,28 +15,21 @@ This repository provides a complete Docker container setup optimized for Synolog
 4. **Vaultwarden** - Self-hosted password manager (Bitwarden compatible)
 5. **AdGuard Home** - Network-wide ad & tracker blocking
 
-#### 🏠 Home Automation
-6. **Home Assistant** - Complete home automation platform
-7. **Node-RED** - Visual automation and workflow engine
-8. **Mosquitto** - Lightweight MQTT broker for IoT devices
-
 #### 📁 Productivity & Storage
-9. **Nextcloud** - File sync, calendar, contacts, and collaboration
-10. **Immich** - High-performance photo and video management
-11. **Paperless-ngx** - Document management system with OCR
+6. **Nextcloud** - File sync, calendar, contacts, and collaboration
 
 #### 📊 Monitoring & Management
-12. **Portainer** - Container management interface
-13. **Uptime Kuma** - Self-hosted uptime monitoring
-14. **Grafana** - Metrics visualization and dashboards
-15. **Prometheus** - Metrics collection and alerting
-16. **cAdvisor** - Container resource metrics for Prometheus
-17. **Dozzle** - Real-time log viewer for Docker containers
+7. **Portainer** - Container management interface
+8. **Uptime Kuma** - Self-hosted uptime monitoring
+9. **Grafana** - Metrics visualization and dashboards
+10. **Prometheus** - Metrics collection and alerting
+11. **cAdvisor** - Container resource metrics for Prometheus
 
 #### 🛠️ Utilities
-18. **Homepage** - Beautiful dashboard for all your services
-19. **Diun** - Docker image update notifications
-20. **IT-Tools** - Collection of handy developer utilities
+12. **Homepage** - Beautiful dashboard for all your services
+13. **Diun** - Docker image update notifications
+14. **Dozzle** - Real-time log viewer for Docker containers
+15. **IT-Tools** - Collection of handy developer utilities
 
 ## 🚀 Quick Start
 
@@ -94,12 +87,8 @@ This repository provides a complete Docker container setup optimized for Synolog
 | WireGuard | 128MB | High | 500MB |
 | Vaultwarden | 256MB | Normal | 2GB |
 | AdGuard Home | 256MB | Normal | 1GB |
-| Home Assistant | 1GB | High | 5GB |
-| Node-RED | 512MB | Normal | 2GB |
-| Mosquitto | 128MB | Normal | 500MB |
 | Nextcloud | 2GB | High | Varies |
-| Immich | 2GB | Normal | Varies |
-| Paperless-ngx | 1GB | Normal | Varies |
+| Nextcloud DB | 512MB | Normal | Varies |
 | Portainer | 256MB | Low | 1GB |
 | Uptime Kuma | 256MB | Low | 1GB |
 | Grafana | 512MB | Normal | 2GB |
@@ -109,9 +98,9 @@ This repository provides a complete Docker container setup optimized for Synolog
 | Diun | 128MB | Low | 100MB |
 | Dozzle | 128MB | Low | 100MB |
 | IT-Tools | 128MB | Low | 100MB |
-| **Total** | **~11GB** | - | **~32GB + Data** |
+| **Total** | **~6.5GB** | - | **~22GB + Data** |
 
-*Remaining ~5GB reserved for system and cache*
+*Remaining ~9.5GB reserved for system and cache*
 
 ## 🔐 Security Features
 
@@ -144,13 +133,10 @@ After deployment, services are accessible at:
 |---------|-----------|----------------------------|
 | Homepage | - | https://yourdomain.com or https://home.yourdomain.com |
 | Portainer | http://nas:9000 | https://portainer.yourdomain.com |
-| Home Assistant | http://nas:8123 | https://ha.yourdomain.com |
 | Nextcloud | - | https://cloud.yourdomain.com |
 | Vaultwarden | - | https://vault.yourdomain.com |
-| Immich | - | https://photos.yourdomain.com |
 | Grafana | - | https://grafana.yourdomain.com |
 | AdGuard | http://nas:3001 | https://dns.yourdomain.com |
-| Paperless | - | https://docs.yourdomain.com |
 | Uptime Kuma | - | https://status.yourdomain.com |
 | Dozzle | - | https://logs.yourdomain.com |
 | IT-Tools | - | https://tools.yourdomain.com |

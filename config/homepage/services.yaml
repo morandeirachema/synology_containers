@@ -31,50 +31,11 @@
         href: #
         description: VPN Server
 
-- Home Automation:
-    - Home Assistant:
-        icon: home-assistant.png
-        href: https://ha.{{HOMEPAGE_VAR_DOMAIN}}
-        description: Smart Home Platform
-        widget:
-          type: homeassistant
-          url: http://homeassistant:8123
-          key: {{HOMEPAGE_VAR_HA_TOKEN}}
-
-    - Node-RED:
-        icon: node-red.png
-        href: https://nodered.{{HOMEPAGE_VAR_DOMAIN}}
-        description: Automation Flows
-
-    - MQTT Broker:
-        icon: mosquitto.png
-        href: #
-        description: IoT Message Broker
-
 - Productivity & Storage:
     - Nextcloud:
         icon: nextcloud.png
         href: https://cloud.{{HOMEPAGE_VAR_DOMAIN}}
         description: File Sync & Productivity
-
-    - Immich:
-        icon: immich.png
-        href: https://photos.{{HOMEPAGE_VAR_DOMAIN}}
-        description: Photo Management
-        widget:
-          type: immich
-          url: http://immich-server:3001
-          key: {{HOMEPAGE_VAR_IMMICH_KEY}}
-
-    - Paperless-ngx:
-        icon: paperless.png
-        href: https://docs.{{HOMEPAGE_VAR_DOMAIN}}
-        description: Document Management
-        widget:
-          type: paperlessngx
-          url: http://paperless-ngx:8000
-          username: {{HOMEPAGE_VAR_PAPERLESS_USER}}
-          password: {{HOMEPAGE_VAR_PAPERLESS_PASS}}
 
 - Monitoring & Management:
     - Portainer:
