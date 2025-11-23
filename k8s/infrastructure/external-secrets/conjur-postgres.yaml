@@ -1,0 +1,99 @@
+---
+# PostgreSQL database for Conjur
+# Stores Conjur configuration, policies, and encrypted secrets
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: conjur-postgres
+  namespace: conjur
+  labels:
+    app: conjur-postgres
+    component: database
+spec:
+  serviceName: conjur-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: conjur-postgres
+  template:
+    metadata:
+      labels:
+        app: conjur-postgres
+        component: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust  # For development only! Use proper auth in production
+            - name: POSTGRES_DB
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: nfs-client
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conjur-postgres
+  namespace: conjur
+  labels:
+    app: conjur-postgres
+    component: database
+spec:
+  selector:
+    app: conjur-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+  clusterIP: None  # Headless service for StatefulSet
+  type: ClusterIP

@@ -1,0 +1,157 @@
+---
+# Conjur namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: conjur
+  labels:
+    name: conjur
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+
+---
+# Conjur OSS Deployment
+# Enterprise-grade secrets management for Kubernetes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conjur-oss
+  namespace: conjur
+  labels:
+    app: conjur-oss
+    component: secrets-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: conjur-oss
+  template:
+    metadata:
+      labels:
+        app: conjur-oss
+        component: secrets-manager
+    spec:
+      containers:
+        - name: conjur
+          image: cyberark/conjur:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: "postgres://postgres@conjur-postgres.conjur.svc.cluster.local/postgres"
+            - name: CONJUR_DATA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: conjur-data-key
+                  key: key
+            - name: CONJUR_AUTHENTICATORS
+              value: "authn"
+          volumeMounts:
+            - name: conjur-data
+              mountPath: /var/lib/conjur
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: conjur-data
+          persistentVolumeClaim:
+            claimName: conjur-data
+
+---
+# PersistentVolumeClaim for Conjur data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: conjur-data
+  namespace: conjur
+  labels:
+    app: conjur-oss
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Conjur Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: conjur-oss
+  namespace: conjur
+  labels:
+    app: conjur-oss
+    component: secrets-manager
+spec:
+  selector:
+    app: conjur-oss
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  type: ClusterIP
+
+---
+# Conjur Ingress (optional - for web UI access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: conjur-oss
+  namespace: conjur
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # If using Cilium ingress:
+    # ingress.cilium.io/loadbalancer-mode: dedicated
+spec:
+  ingressClassName: cilium
+  rules:
+    - host: conjur.k8s.yourdomain.com  # CHANGE THIS
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: conjur-oss
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - conjur.k8s.yourdomain.com
+      secretName: conjur-tls
