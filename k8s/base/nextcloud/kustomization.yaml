@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: nextcloud
+  namespace: production
+
+resources:
+  - statefulset.yaml
+  - postgres.yaml
+  - service.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: nextcloud
+  app.kubernetes.io/component: file-storage
+
+images:
+  - name: nextcloud
+    newTag: 28-apache
+  - name: postgres
+    newTag: 16-alpine
+  - name: redis
+    newTag: 7-alpine
+
+secretGenerator:
+  - name: nextcloud-secrets
+    literals:
+      - postgres-password=YOUR_POSTGRES_PASSWORD
+      - admin-password=YOUR_ADMIN_PASSWORD

@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authelia-config
+  labels:
+    app: authelia
+data:
+  configuration.yml: |
+    ---
+    theme: dark
+    server:
+      host: 0.0.0.0
+      port: 9091
+      path: ""
+      asset_path: /config/assets/
+      headers:
+        csp_template: ""
+      buffers:
+        read: 4096
+        write: 4096
+      timeouts:
+        read: 6s
+        write: 6s
+        idle: 30s
+
+    log:
+      level: info
+      format: text
+
+    totp:
+      disable: false
+      issuer: yourdomain.com
+      algorithm: sha1
+      digits: 6
+      period: 30
+      skew: 1
+      secret_size: 32
+
+    webauthn:
+      disable: false
+      display_name: Authelia
+      attestation_conveyance_preference: indirect
+      user_verification: preferred
+      timeout: 60s
+
+    duo_api:
+      disable: true
+
+    ntp:
+      address: "time.cloudflare.com:123"
+      version: 4
+      max_desync: 3s
+      disable_startup_check: false
+      disable_failure: false
+
+    authentication_backend:
+      password_reset:
+        disable: false
+      refresh_interval: 5m
+      file:
+        path: /config/users_database.yml
+        password:
+          algorithm: argon2id
+          iterations: 1
+          key_length: 32
+          salt_length: 16
+          memory: 64
+          parallelism: 4
+
+    access_control:
+      default_policy: deny
+      rules:
+        # Bypass rule for API endpoints
+        - domain:
+            - "auth.yourdomain.com"
+          policy: bypass
+          resources:
+            - "^/api.*$"
+
+        # Bypass for specific public services
+        - domain:
+            - "tools.yourdomain.com"
+          policy: bypass
+
+        # Two-factor for all other services
+        - domain:
+            - "*.yourdomain.com"
+          policy: two_factor
+
+    session:
+      name: authelia_session
+      domain: yourdomain.com
+      same_site: lax
+      secret: USE_SECRET_FILE
+      expiration: 1h
+      inactivity: 15m
+      remember_me_duration: 1M
+      redis:
+        host: authelia-redis
+        port: 6379
+        database_index: 0
+        maximum_active_connections: 10
+        minimum_idle_connections: 0
+
+    regulation:
+      max_retries: 3
+      find_time: 2m
+      ban_time: 5m
+
+    storage:
+      encryption_key: USE_SECRET_FILE
+      postgres:
+        host: authelia-postgres
+        port: 5432
+        database: authelia
+        schema: public
+        username: authelia
+        password: USE_SECRET_FILE
+        timeout: 5s
+
+    notifier:
+      disable_startup_check: false
+      smtp:
+        host: smtp.gmail.com
+        port: 587
+        timeout: 5s
+        username: auth@yourdomain.com
+        password: USE_SECRET_FILE
+        sender: "Authelia <auth@yourdomain.com>"
+        identifier: yourdomain.com
+        subject: "[Authelia] {title}"
+        startup_check_address: admin@yourdomain.com
+        disable_require_tls: false
+        disable_html_emails: false
+        tls:
+          server_name: smtp.gmail.com
+          skip_verify: false
+          minimum_version: TLS1.2
+
+  users_database.yml: |
+    ---
+    users:
+      admin:
+        disabled: false
+        displayname: "Administrator"
+        password: "$argon2id$v=19$m=65536,t=3,p=4$YOUR_HASHED_PASSWORD_HERE"
+        email: admin@yourdomain.com
+        groups:
+          - admins
+          - dev

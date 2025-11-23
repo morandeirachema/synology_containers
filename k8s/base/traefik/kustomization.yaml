@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: traefik
+  namespace: traefik
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - rbac.yaml
+  - middleware.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: traefik
+  app.kubernetes.io/component: ingress-controller
+
+images:
+  - name: traefik
+    newTag: v3.0
+
+secretGenerator:
+  - name: cloudflare-api-credentials
+    literals:
+      - email=admin@yourdomain.com
+      - apiKey=YOUR_CLOUDFLARE_API_KEY_HERE

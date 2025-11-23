@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: staging-stack
+  namespace: staging
+
+# Reference base configurations
+bases:
+  - ../../base/traefik
+  - ../../base/authelia
+  - ../../base/vaultwarden
+  - ../../base/nextcloud
+  - ../../base/homepage
+  - ../../base/it-tools
+
+# Staging namespace
+namespace: staging
+
+# Common labels for all resources
+commonLabels:
+  environment: staging
+  managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  environment: staging
+  contact: admin@yourdomain.com
+
+# Staging uses latest images (more frequent updates)
+images:
+  - name: traefik
+    newTag: latest
+  - name: authelia/authelia
+    newTag: latest
+  - name: vaultwarden/server
+    newTag: latest
+  - name: nextcloud
+    newTag: latest
+  - name: ghcr.io/gethomepage/homepage
+    newTag: latest
+  - name: corentinth/it-tools
+    newTag: latest
+
+# Staging runs with minimal replicas
+replicas:
+  - name: traefik
+    count: 1
+  - name: authelia
+    count: 1
+  - name: homepage
+    count: 1
+  - name: it-tools
+    count: 1
+
+# Namespace patches for staging subdomain
+patchesJson6902:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: ".*"
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.yourdomain.com

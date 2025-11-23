@@ -69,134 +69,157 @@ This repository provides a **complete, production-ready Docker environment** spe
 
 ---
 
-## ☸️ Kubernetes Cluster
+## ☸️ Kubernetes Cluster (PRIMARY PLATFORM)
 
-In addition to the Docker stack, this repository includes complete documentation and configurations for deploying a **production-grade Talos Kubernetes cluster** on Beelink Mini S13 nodes (Intel N150).
+This repository provides a **complete, production-grade Talos Kubernetes cluster** running on Beelink Mini S13 nodes (Intel N150). **All services run on Kubernetes except Pi-hole** (which stays on Docker for DNS stability).
 
 ### Quick Overview
 
-- **Nodes**: 2x Beelink Mini S13 (1 control plane + worker, 1 worker)
+- **Platform**: Kubernetes-first architecture
+- **Nodes**: 2x Beelink Mini S13 (Intel N150)
+  - Node 1: Control plane + worker (hybrid)
+  - Node 2: Dedicated worker
 - **OS**: Talos Linux (immutable, API-managed, secure)
 - **K8s Version**: 1.29+ (upgradable via talosctl)
 - **CNI**: Cilium with eBPF for high-performance networking
-- **Storage**: Synology NAS via NFS (same NAS as Docker stack)
+- **Storage**: Synology NAS via NFS
 - **Secrets**: CyberArk Conjur OSS for enterprise-grade secrets management
 - **GitOps**: ArgoCD for declarative deployments
-- **Observability**: Prometheus, Grafana, Loki (separate from Docker)
+- **Manifests**: Kustomize for environment management (dev/staging/production)
+- **Observability**: Prometheus, Grafana, Loki
 - **Security**: A+ grade with network policies, pod security standards, TLS everywhere
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              Your Home Network                       │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  ┌──────────────┐    ┌──────────────┐              │
-│  │ Beelink #1   │    │ Beelink #2   │              │
-│  │ (Control +   │    │ (Worker)     │              │
-│  │  Worker)     │    │              │              │
-│  │ Talos Linux  │    │ Talos Linux  │              │
-│  └──────┬───────┘    └──────┬───────┘              │
-│         │                    │                       │
-│         └────────┬───────────┘                       │
-│                  │                                   │
-│         ┌────────▼────────┐                         │
-│         │  Kubernetes API │                         │
-│         │  (VIP 192.168.  │                         │
-│         │   1.200)        │                         │
-│         └────────┬────────┘                         │
-│                  │                                   │
-│         ┌────────▼────────────┐                     │
-│         │   K8s Services      │                     │
-│         │  • Cilium (CNI)     │                     │
-│         │  • ArgoCD           │                     │
-│         │  • Prometheus       │                     │
-│         │  • Grafana          │                     │
-│         │  • Loki             │                     │
-│         │  • Conjur           │                     │
-│         │  • Your Apps        │                     │
-│         └────────┬────────────┘                     │
-│                  │ NFS Storage                       │
-│         ┌────────▼────────────┐                     │
-│         │  Synology DS 224+   │                     │
-│         │  • NFS for K8s PVs  │                     │
-│         │  • Backup storage   │                     │
-│         │  • Docker stack     │                     │
-│         │    (runs parallel)  │                     │
-│         └─────────────────────┘                     │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                 Your Home Network                         │
+├──────────────────────────────────────────────────────────┤
+│                                                           │
+│  ┌─────────────────┐         ┌─────────────────┐        │
+│  │   Beelink #1    │         │   Beelink #2    │        │
+│  │  (Control +     │         │   (Worker)      │        │
+│  │   Worker)       │         │                 │        │
+│  │  Talos Linux    │         │  Talos Linux    │        │
+│  └────────┬────────┘         └────────┬────────┘        │
+│           │                           │                   │
+│           └──────────┬────────────────┘                   │
+│                      │                                    │
+│           ┌──────────▼──────────┐                        │
+│           │  Kubernetes Cluster  │                        │
+│           │  ─────────────────── │                        │
+│           │  • Traefik          │                        │
+│           │  • Authelia (SSO)   │                        │
+│           │  • Vaultwarden      │                        │
+│           │  • Nextcloud        │                        │
+│           │  • Homepage         │                        │
+│           │  • IT-Tools         │                        │
+│           │  • ArgoCD           │                        │
+│           │  • Prometheus       │                        │
+│           │  • Grafana          │                        │
+│           │  • Loki             │                        │
+│           │  • Conjur           │                        │
+│           └──────────┬──────────┘                        │
+│                      │ NFS Storage + DNS                  │
+│           ┌──────────▼──────────────────┐                │
+│           │    Synology DS 224+         │                │
+│           │  ────────────────────────   │                │
+│           │  Docker: Only Pi-hole       │                │
+│           │  • DNS + Ad Blocking        │                │
+│           │                              │                │
+│           │  Also provides:              │                │
+│           │  • NFS storage for K8s PVs   │                │
+│           │  • Backup target (Velero)    │                │
+│           │  • Logs/metrics storage      │                │
+│           └──────────────────────────────┘                │
+│                                                           │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### What's Included
 
-**📖 Complete Documentation** (2,500+ lines):
+**📖 Complete Documentation** (4,000+ lines):
 - **[Talos Setup Guide](docs/TALOS_KUBERNETES_SETUP.md)**: Step-by-step installation (1,350+ lines)
 - **[K8s Architecture](docs/K8S_ARCHITECTURE.md)**: Design decisions and architecture (600+ lines)
 - **[Operations Guide](docs/K8S_OPERATIONS.md)**: Day-2 operations, upgrades, maintenance
-- **[Migration Guide](docs/K8S_MIGRATION.md)**: Which services to migrate from Docker to K8s
+- **[Deployment Guide](docs/K8S_DEPLOYMENT.md)**: Service deployment strategies and Pi-hole Docker setup
+- **[Kustomize Guide](k8s/README.md)**: Using Kustomize for environment management
 
-**⚙️ Ready-to-Use Configurations**:
+**⚙️ Ready-to-Use Configurations with Kustomize**:
+- **Base configurations** for all services (Traefik, Authelia, Vaultwarden, Nextcloud, Homepage, IT-Tools)
+- **Overlays** for dev/staging/production environments
 - Talos node configurations (control plane + worker templates)
-- Kubernetes manifests for core infrastructure
-- Cilium CNI with eBPF networking
-- MetalLB for LoadBalancer services
-- cert-manager for automatic TLS certificates
-- NFS CSI driver for Synology storage
-- Conjur deployment for secrets management
-- External Secrets Operator integration
-- Prometheus + Grafana + Loki observability stack
+- Infrastructure components (Cilium, MetalLB, cert-manager, NFS provisioner)
+- Conjur deployment for secrets management with External Secrets Operator
+- Complete observability stack (Prometheus, Grafana, Loki, Promtail)
 - ArgoCD for GitOps workflows
+- Security middleware (headers, rate limiting, Authelia integration)
 
 **🔧 Helper Scripts**:
 - `scripts/k8s-daily-check.sh`: Daily cluster health checks
 - `scripts/k8s-backup.sh`: Comprehensive backup (etcd, configs, resources)
 - `scripts/k8s-cleanup.sh`: Clean old resources and images
 
-### Why Run Both Docker AND Kubernetes?
+### Why Only Pi-hole on Docker?
 
-**Docker Stack** (Synology):
-- ✅ Proven, stable, production-ready
-- ✅ Simple to manage
-- ✅ Perfect for stateful services (Nextcloud, Vaultwarden, Pi-hole)
-- ✅ Low overhead
-- ✅ Quick to deploy
+**Pi-hole Stays on Docker** (Synology):
+- ✅ **DNS is critical**: Avoids circular dependency (K8s nodes need DNS to function)
+- ✅ **Network stability**: If K8s cluster is down, you still have DNS
+- ✅ **Simplicity**: Pi-hole doesn't benefit from K8s features (no scaling needed)
+- ✅ **Proven stable**: Docker on Synology is rock-solid for this use case
 
-**Kubernetes Cluster** (Beelink):
-- ✅ Cloud-native applications
-- ✅ Microservices architecture
-- ✅ Auto-scaling capabilities
-- ✅ Rolling updates with zero downtime
-- ✅ Learning platform for K8s skills
-- ✅ Enterprise-grade orchestration
+**Everything Else on Kubernetes** (Beelink):
+- ✅ **Self-healing**: Pods automatically restart on failure
+- ✅ **Scalability**: Easy horizontal scaling (add more replicas)
+- ✅ **Rolling updates**: Zero-downtime deployments
+- ✅ **Resource efficiency**: Better CPU/memory utilization
+- ✅ **Declarative**: Infrastructure as Code with GitOps + Kustomize
+- ✅ **Learning**: Hands-on experience with production K8s
+- ✅ **Future-proof**: Cloud-native architecture
+- ✅ **Observability**: Built-in monitoring with Prometheus
 
-**Together**: You get the best of both worlds—stability for critical services and flexibility for cloud-native workloads.
+**Result**: Maximum stability for DNS + modern cloud-native platform for all other services.
 
 ### Quick Start (Kubernetes)
 
 ```bash
-# 1. Review setup guide
+# 1. Deploy Pi-hole on Synology Docker
+cd /volume1/docker
+# Create docker-compose.yml with Pi-hole (see deployment guide)
+docker-compose up -d pihole
+
+# 2. Review Talos setup guide
 cat docs/TALOS_KUBERNETES_SETUP.md
 
-# 2. Boot Talos on both Beelink nodes from USB
+# 3. Boot Talos on both Beelink nodes from ISO
 
-# 3. Generate and apply configurations
+# 4. Generate and apply configurations
 cd talos
 talosctl gen config my-cluster https://192.168.1.200:6443
 # Customize controlplane.yaml and worker.yaml
-talosctl apply-config --insecure --nodes <node-ip> --file controlplane.yaml
-talosctl apply-config --insecure --nodes <node-ip> --file worker.yaml
+talosctl apply-config --insecure --nodes 192.168.1.201 --file controlplane.yaml
+talosctl apply-config --insecure --nodes 192.168.1.202 --file worker.yaml
 
-# 4. Bootstrap cluster
+# 5. Bootstrap cluster
 talosctl bootstrap --nodes 192.168.1.201
 
-# 5. Get kubeconfig
+# 6. Get kubeconfig
 talosctl kubeconfig .
 export KUBECONFIG=$(pwd)/kubeconfig
 kubectl get nodes
 
-# 6. Install core infrastructure (see setup guide for details)
+# 7. Deploy infrastructure
+kubectl apply -k k8s/bootstrap/cilium/
+kubectl apply -k k8s/bootstrap/metallb/
+kubectl apply -k k8s/bootstrap/cert-manager/
+kubectl apply -k k8s/bootstrap/argocd/
+kubectl apply -k k8s/infrastructure/nfs-provisioner/
+kubectl apply -k k8s/infrastructure/external-secrets/
+
+# 8. Deploy applications (production overlay)
+kubectl apply -k k8s/overlays/production/
+
+# See deployment guide for detailed instructions
 ```
 
 **Full documentation**: [Talos Kubernetes Setup Guide](docs/TALOS_KUBERNETES_SETUP.md)

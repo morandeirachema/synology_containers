@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  labels:
+    app: homepage
+data:
+  settings.yaml: |
+    title: Kubernetes Home Stack
+    theme: dark
+    color: slate
+    headerStyle: clean
+    layout:
+      - Kubernetes Services:
+          style: row
+          columns: 3
+      - Infrastructure:
+          style: row
+          columns: 3
+      - Applications:
+          style: row
+          columns: 4
+    providers:
+      kubernetes:
+        mode: cluster
+
+  services.yaml: |
+    - Kubernetes Services:
+        - ArgoCD:
+            href: https://argocd.yourdomain.com
+            description: GitOps Continuous Delivery
+            icon: argocd.png
+            namespace: argocd
+            app: argocd-server
+        - Grafana:
+            href: https://grafana.yourdomain.com
+            description: Monitoring & Dashboards
+            icon: grafana.png
+            namespace: monitoring
+            app: grafana
+        - Prometheus:
+            href: https://prometheus.yourdomain.com
+            description: Metrics & Alerting
+            icon: prometheus.png
+            namespace: monitoring
+            app: prometheus
+
+    - Infrastructure:
+        - Traefik:
+            href: https://traefik.yourdomain.com
+            description: Ingress Controller
+            icon: traefik.png
+            namespace: traefik
+            app: traefik
+        - Conjur:
+            href: https://conjur.yourdomain.com
+            description: Secrets Management
+            icon: cyberark.png
+            namespace: conjur
+            app: conjur-oss
+        - Longhorn:
+            href: https://longhorn.yourdomain.com
+            description: Distributed Storage
+            icon: longhorn.png
+            namespace: longhorn-system
+            app: longhorn-ui
+
+    - Applications:
+        - Vaultwarden:
+            href: https://vault.yourdomain.com
+            description: Password Manager
+            icon: vaultwarden.png
+            namespace: production
+            app: vaultwarden
+        - Nextcloud:
+            href: https://cloud.yourdomain.com
+            description: File Storage & Sync
+            icon: nextcloud.png
+            namespace: production
+            app: nextcloud
+        - Authelia:
+            href: https://auth.yourdomain.com
+            description: SSO & 2FA
+            icon: authelia.png
+            namespace: security
+            app: authelia
+        - IT-Tools:
+            href: https://tools.yourdomain.com
+            description: Developer Utilities
+            icon: it-tools.png
+            namespace: tools
+            app: it-tools
+
+  widgets.yaml: |
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "Talos Cluster"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+
+    - resources:
+        backend: kubernetes
+        expanded: true
+        cpu: true
+        memory: true
+
+    - datetime:
+        text_size: xl
+        format:
+          timeStyle: short
+          dateStyle: long
+
+    - search:
+        provider: google
+        target: _blank
+
+  bookmarks.yaml: |
+    - Documentation:
+        - Talos Linux:
+            - abbr: TL
+              href: https://www.talos.dev/
+        - Kubernetes Docs:
+            - abbr: K8
+              href: https://kubernetes.io/docs/
+        - ArgoCD:
+            - abbr: AR
+              href: https://argo-cd.readthedocs.io/
+        - Cilium:
+            - abbr: CL
+              href: https://docs.cilium.io/
+
+    - Monitoring:
+        - Grafana Dashboards:
+            - abbr: GF
+              href: https://grafana.com/grafana/dashboards/
+        - Prometheus Queries:
+            - abbr: PR
+              href: https://prometheus.io/docs/prometheus/latest/querying/basics/
+
+    - Tools:
+        - Kustomize:
+            - abbr: KZ
+              href: https://kustomize.io/
+        - Helm Hub:
+            - abbr: HH
+              href: https://artifacthub.io/

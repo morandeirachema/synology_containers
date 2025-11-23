@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: vaultwarden
+  namespace: production
+
+resources:
+  - statefulset.yaml
+  - postgres.yaml
+  - service.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: vaultwarden
+  app.kubernetes.io/component: password-manager
+
+images:
+  - name: vaultwarden/server
+    newTag: latest
+  - name: postgres
+    newTag: 16-alpine
+
+secretGenerator:
+  - name: vaultwarden-secrets
+    literals:
+      - smtp-host=smtp.gmail.com
+      - smtp-from=vault@yourdomain.com
+      - smtp-username=vault@yourdomain.com
+      - smtp-password=YOUR_SMTP_PASSWORD
+      - admin-token=YOUR_ADMIN_TOKEN_HERE
+      - postgres-password=YOUR_POSTGRES_PASSWORD

@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: dev-stack
+  namespace: dev
+
+# Reference base configurations (only lightweight services for dev)
+bases:
+  - ../../base/homepage
+  - ../../base/it-tools
+
+# Dev namespace
+namespace: dev
+
+# Common labels for all resources
+commonLabels:
+  environment: dev
+  managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  environment: dev
+  contact: dev@yourdomain.com
+
+# Dev uses latest images
+images:
+  - name: ghcr.io/gethomepage/homepage
+    newTag: latest
+  - name: corentinth/it-tools
+    newTag: latest
+
+# Dev runs single replica
+replicas:
+  - name: homepage
+    count: 1
+  - name: it-tools
+    count: 1
+
+# Reduce resource requests for dev
+patchesStrategicMerge:
+  - resources-patch.yaml

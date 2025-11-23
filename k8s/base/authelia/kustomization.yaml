@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: authelia
+  namespace: security
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - configmap.yaml
+  - redis.yaml
+  - postgres.yaml
+
+commonLabels:
+  app.kubernetes.io/name: authelia
+  app.kubernetes.io/component: sso
+
+images:
+  - name: authelia/authelia
+    newTag: latest
+  - name: redis
+    newTag: 7-alpine
+  - name: postgres
+    newTag: 16-alpine
+
+secretGenerator:
+  - name: authelia-secrets
+    files:
+      - jwt-secret=secrets/jwt-secret.txt
+      - session-secret=secrets/session-secret.txt
+      - storage-encryption-key=secrets/storage-encryption-key.txt
+      - smtp-password=secrets/smtp-password.txt
+      - postgres-password=secrets/postgres-password.txt
