@@ -94,7 +94,7 @@ read_only: true  # where feasible
 - Traefik: 256MB
 - Authelia: 256MB
 - Vaultwarden: 256MB
-- AdGuard: 256MB
+- Pi-hole: 256MB
 - Portainer: 256MB
 - Uptime Kuma: 256MB
 

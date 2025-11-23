@@ -162,17 +162,17 @@ This repository provides a **complete, production-ready Docker environment** spe
   - Encrypted file attachments
   - Emergency access features
 
-#### 5. AdGuard Home - Network-Wide Ad Blocker
+#### 5. Pi-hole - Network-Wide Ad Blocker
 - **Purpose**: DNS-based ad blocking and privacy protection
-- **Official Docs**: https://adguard.com/en/adguard-home/overview.html
-- **Dashboard**: http://nas:3001 or https://dns.yourdomain.com
+- **Official Docs**: https://docs.pi-hole.net/
+- **Dashboard**: http://nas:8053 or https://dns.yourdomain.com
 - **Key Features**:
-  - Block ads, trackers, and malware domains
-  - Custom DNS rewrites
-  - Encrypted DNS (DNS-over-HTTPS, DNS-over-TLS)
-  - Per-client settings
-  - Query logging and statistics
-  - Parental control filters
+  - Block ads, trackers, and malware domains across entire network
+  - Extensive blocklist library and custom list support
+  - Detailed query logging and statistics dashboard
+  - Per-device blocking controls
+  - DHCP server (optional)
+  - Web interface with real-time analytics
 
 </details>
 
@@ -341,7 +341,7 @@ Internet
 ├─[Proxy Network]───────────────────────────┐
 │  ├─ Authelia (2FA Gateway)                │
 │  ├─ Vaultwarden                           │
-│  ├─ AdGuard Home                          │
+│  ├─ Pi-hole                               │
 │  ├─ Nextcloud                             │
 │  ├─ Portainer                             │
 │  ├─ Uptime Kuma                           │
@@ -482,7 +482,7 @@ docker-compose ps
 | Authelia | 256 MB | 0.3 cores | ~1 GB | Normal |
 | WireGuard | 128 MB | 0.5 cores | ~500 MB | High |
 | Vaultwarden | 256 MB | 0.5 cores | ~2 GB | Normal |
-| AdGuard Home | 256 MB | 0.5 cores | ~1 GB | Normal |
+| Pi-hole | 256 MB | 0.5 cores | ~1 GB | Normal |
 | Nextcloud (App) | 2048 MB | 1.5 cores | Varies | High |
 | Nextcloud (DB) | 512 MB | 0.5 cores | Varies | Normal |
 | Portainer | 256 MB | 0.5 cores | ~1 GB | Low |
@@ -924,7 +924,7 @@ scrape_configs:
 | **Portainer** | `http://nas:9000` | `https://portainer.yourdomain.com` | Own auth |
 | **Nextcloud** | N/A | `https://cloud.yourdomain.com` | Own auth |
 | **Vaultwarden** | N/A | `https://vault.yourdomain.com` | Own auth |
-| **AdGuard Home** | `http://nas:3001` | `https://dns.yourdomain.com` | ✅ 2FA |
+| **Pi-hole** | `http://nas:8053` | `https://dns.yourdomain.com` | ✅ 2FA |
 | **Grafana** | N/A | `https://grafana.yourdomain.com` | ✅ 2FA |
 | **Uptime Kuma** | N/A | `https://status.yourdomain.com` | Own auth |
 | **Dozzle** | N/A | `https://logs.yourdomain.com` | ✅ 2FA |

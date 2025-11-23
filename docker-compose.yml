@@ -164,31 +164,41 @@ services:
       - traefik
 
   ############################################
-  # 5. ADGUARD HOME - DNS & Ad Blocking
+  # 5. PI-HOLE - DNS & Ad Blocking
   ############################################
-  adguardhome:
-    image: adguard/adguardhome:v0.107.43
-    container_name: adguardhome
+  pihole:
+    image: pihole/pihole:2024.07.0
+    container_name: pihole
     restart: unless-stopped
     networks:
       - proxy
     ports:
       - "53:53/tcp"
       - "53:53/udp"
-      - "3001:3000/tcp"  # Web UI
+      - "8053:80/tcp"  # Web UI
     environment:
       - TZ=${TZ}
+      - WEBPASSWORD=${PIHOLE_PASSWORD}
+      - SERVERIP=${NAS_IP}
+      - DNS1=1.1.1.1
+      - DNS2=1.0.0.1
+      - DNSMASQ_LISTENING=all
     volumes:
-      - ./config/adguardhome/work:/opt/adguardhome/work
-      - ./config/adguardhome/conf:/opt/adguardhome/conf
+      - ./config/pihole/etc-pihole:/etc/pihole
+      - ./config/pihole/etc-dnsmasq.d:/etc/dnsmasq.d
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.adguard.rule=Host(`dns.${DOMAIN}`)"
-      - "traefik.http.routers.adguard.entrypoints=https"
-      - "traefik.http.services.adguard.loadbalancer.server.port=3000"
-      - "traefik.http.routers.adguard.middlewares=authelia@docker"
+      - "traefik.http.routers.pihole.rule=Host(`dns.${DOMAIN}`)"
+      - "traefik.http.routers.pihole.entrypoints=https"
+      - "traefik.http.services.pihole.loadbalancer.server.port=80"
+      - "traefik.http.routers.pihole.middlewares=authelia@docker"
     mem_limit: 256m
     cpus: 0.5
+    cap_add:
+      - NET_ADMIN
+    dns:
+      - 127.0.0.1
+      - 1.1.1.1
 
   ############################################
   # 6. NEXTCLOUD - File Sync & Productivity

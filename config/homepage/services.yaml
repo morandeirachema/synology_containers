@@ -16,15 +16,13 @@
         href: https://auth.{{HOMEPAGE_VAR_DOMAIN}}
         description: 2FA Authentication
 
-    - AdGuard Home:
-        icon: adguard-home.png
+    - Pi-hole:
+        icon: pi-hole.png
         href: https://dns.{{HOMEPAGE_VAR_DOMAIN}}
         description: DNS & Ad Blocking
         widget:
-          type: adguard
-          url: http://adguardhome:3000
-          username: {{HOMEPAGE_VAR_ADGUARD_USER}}
-          password: {{HOMEPAGE_VAR_ADGUARD_PASS}}
+          type: pihole
+          url: http://pihole
 
     - WireGuard:
         icon: wireguard.png
