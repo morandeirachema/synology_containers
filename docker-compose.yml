@@ -68,6 +68,26 @@ services:
       retries: 3
 
   ############################################
+  # 1B. CLOUDFLARED - CloudFlare Tunnel
+  ############################################
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    networks:
+      - proxy
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    mem_limit: 128m
+    cpus: 0.3
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep cloudflared || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ############################################
   # 2. AUTHELIA - 2FA Authentication
   ############################################
   authelia:

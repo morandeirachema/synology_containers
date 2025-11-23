@@ -112,7 +112,7 @@ This repository provides a **complete, production-ready Docker environment** spe
 
 ## 📦 Service Catalog
 
-### 🔒 Security & Privacy Layer (5 Services)
+### 🔒 Security & Privacy Layer (6 Services)
 
 <details>
 <summary><b>Click to expand Security Services details</b></summary>
@@ -127,6 +127,18 @@ This repository provides a **complete, production-ready Docker environment** spe
   - Dynamic service discovery
   - Middleware support (auth, rate limiting, compression)
   - Prometheus metrics export
+
+#### 1B. CloudFlare Tunnel (Optional) - Secure Remote Access
+- **Purpose**: Zero-trust network access without port forwarding
+- **Official Docs**: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
+- **Dashboard**: https://one.dash.cloudflare.com/
+- **Key Features**:
+  - No open ports on your router (enhanced security)
+  - Hide your home IP address
+  - DDoS protection from CloudFlare
+  - Free for personal use
+  - Automatic failover and load balancing
+  - Built-in access policies and authentication
 
 #### 2. Authelia - Authentication & Authorization Server
 - **Purpose**: Single Sign-On (SSO) and Two-Factor Authentication (2FA)
@@ -444,7 +456,8 @@ docker-compose ps
 2. Configure **Authelia 2FA** at `https://auth.yourdomain.com`
 3. Set up **Vaultwarden** at `https://vault.yourdomain.com`
 4. Import **Grafana dashboards** from [Grafana.com](https://grafana.com/grafana/dashboards/)
-5. Read the **[Complete Setup Guide](docs/SETUP.md)** for detailed instructions
+5. **Optional**: Set up **[CloudFlare Tunnel](docs/CLOUDFLARE_TUNNEL_SETUP.md)** for secure access without port forwarding
+6. Read the **[Complete Setup Guide](docs/SETUP.md)** for detailed instructions
 
 ---
 
@@ -479,6 +492,7 @@ docker-compose ps
 | Service | RAM Limit | CPU Limit | Disk Usage | Priority |
 |---------|-----------|-----------|------------|----------|
 | Traefik | 256 MB | 0.5 cores | ~1 GB | Normal |
+| CloudFlared (Optional) | 128 MB | 0.3 cores | ~100 MB | Normal |
 | Authelia | 256 MB | 0.3 cores | ~1 GB | Normal |
 | WireGuard | 128 MB | 0.5 cores | ~500 MB | High |
 | Vaultwarden | 256 MB | 0.5 cores | ~2 GB | Normal |
@@ -1700,6 +1714,7 @@ docker-compose config > config.txt
 | **Security Hardening** | A+ security configuration guide | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Best Practices** | Production deployment guidelines | [docs/BEST_PRACTICES.md](docs/BEST_PRACTICES.md) |
 | **Troubleshooting** | Common issues and solutions | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
+| **CloudFlare Tunnel** | Secure access without port forwarding | [docs/CLOUDFLARE_TUNNEL_SETUP.md](docs/CLOUDFLARE_TUNNEL_SETUP.md) |
 
 ### External Resources
 
@@ -1869,6 +1884,31 @@ certificatesResolvers:
 ```
 
 **Manual certificates**: Use your own SSL certs.
+
+</details>
+
+<details>
+<summary><b>Should I use CloudFlare Tunnel instead of port forwarding?</b></summary>
+
+**CloudFlare Tunnel Advantages:**
+- ✅ No open ports on your router (enhanced security)
+- ✅ Hide your home IP address
+- ✅ Built-in DDoS protection
+- ✅ Free for personal use
+- ✅ Easier setup (no router configuration)
+- ✅ Works behind CGNAT/strict firewalls
+
+**Traditional Port Forwarding Advantages:**
+- ✅ Direct connection (slightly lower latency)
+- ✅ No dependency on third-party service
+- ✅ More control over networking
+
+**Recommended Setup:**
+- **CloudFlare Tunnel**: For web services (HTTPS traffic)
+- **WireGuard VPN**: For direct network access (SSH, file shares, etc.)
+- **Both can coexist**: Maximum flexibility and security
+
+See the **[CloudFlare Tunnel Setup Guide](docs/CLOUDFLARE_TUNNEL_SETUP.md)** for detailed instructions.
 
 </details>
 
