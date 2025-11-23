@@ -1,0 +1,55 @@
+##################################################
+# Traefik Dynamic Configuration - Middlewares
+# Security headers and rate limiting
+##################################################
+
+http:
+  middlewares:
+    # Security Headers
+    security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+          Server: ""
+          X-Powered-By: ""
+
+    # Rate Limiting
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+
+    # Rate Limiting - Strict (for auth endpoints)
+    rate-limit-strict:
+      rateLimit:
+        average: 10
+        burst: 5
+        period: 1m
+
+    # IP Whitelist (optional - uncomment and configure)
+    # local-only:
+    #   ipWhiteList:
+    #     sourceRange:
+    #       - "192.168.1.0/24"
+    #       - "10.0.0.0/8"
+    #       - "172.16.0.0/12"
+
+    # Compression
+    compression:
+      compress: {}
+
+    # Redirect to www (optional)
+    # redirect-to-www:
+    #   redirectRegex:
+    #     regex: "^https://yourdomain\\.com/(.*)"
+    #     replacement: "https://www.yourdomain.com/$${1}"
+    #     permanent: true

@@ -1,0 +1,55 @@
+# Environment variables
+.env
+*.env
+!.env.example
+
+# Data directories
+data/
+logs/
+backups/
+
+# Configuration with secrets
+config/**/secrets.yml
+config/**/*.key
+config/**/*.pem
+config/**/*.crt
+
+# Specific service data
+config/traefik/acme.json
+config/authelia/db.sqlite3
+config/authelia/notification.txt
+config/wireguard/*.conf
+config/wireguard/peer_*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+.directory
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Docker volumes (if any local volume data)
+volumes/
+
+# Backup files
+*.backup
+*.bak
+*.old

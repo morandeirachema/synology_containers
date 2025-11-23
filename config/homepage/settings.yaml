@@ -1,0 +1,35 @@
+---
+# Homepage Settings
+
+title: Synology Home Stack
+favicon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/synology.png
+theme: dark
+color: slate
+target: _blank
+
+layout:
+  Security & Privacy:
+    style: row
+    columns: 4
+  Home Automation:
+    style: row
+    columns: 3
+  Productivity & Storage:
+    style: row
+    columns: 3
+  Monitoring & Management:
+    style: row
+    columns: 4
+  Utilities:
+    style: row
+    columns: 2
+
+providers:
+  openweathermap: openweathermapapikey
+  weatherapi: weatherapiapikey
+
+quicklaunch:
+  searchDescriptions: true
+  hideInternetSearch: false
+  showSearchSuggestions: true
+  hideVisitURL: false

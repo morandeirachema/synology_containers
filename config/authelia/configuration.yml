@@ -1,0 +1,94 @@
+---
+##################################################
+# Authelia Configuration
+# 2FA and SSO Authentication
+##################################################
+
+theme: dark
+
+server:
+  host: 0.0.0.0
+  port: 9091
+  asset_path: /config/assets/
+
+log:
+  level: info
+  format: text
+  file_path: /config/authelia.log
+
+telemetry:
+  metrics:
+    enabled: true
+    address: tcp://0.0.0.0:9959
+
+totp:
+  disable: false
+  issuer: authelia.com
+  algorithm: sha1
+  digits: 6
+  period: 30
+  skew: 1
+  secret_size: 32
+
+authentication_backend:
+  password_reset:
+    disable: false
+  refresh_interval: 5m
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2id
+      iterations: 1
+      key_length: 32
+      salt_length: 16
+      memory: 1024
+      parallelism: 8
+
+access_control:
+  default_policy: deny
+  rules:
+    # Bypass for specific paths
+    - domain:
+        - "auth.yourdomain.com"
+      policy: bypass
+
+    # Public services (no auth required)
+    - domain:
+        - "status.yourdomain.com"
+      policy: bypass
+
+    # Two-factor authentication required for everything else
+    - domain:
+        - "*.yourdomain.com"
+      policy: two_factor
+
+session:
+  name: authelia_session
+  domain: yourdomain.com
+  same_site: lax
+  expiration: 1h
+  inactivity: 5m
+  remember_me_duration: 1M
+
+regulation:
+  max_retries: 3
+  find_time: 2m
+  ban_time: 5m
+
+storage:
+  encryption_key: REPLACE_IN_ENV_VAR
+  local:
+    path: /config/db.sqlite3
+
+notifier:
+  disable_startup_check: false
+  filesystem:
+    filename: /config/notification.txt
+  # Uncomment and configure SMTP for email notifications
+  # smtp:
+  #   username: your-email@gmail.com
+  #   password: your-app-password
+  #   host: smtp.gmail.com
+  #   port: 587
+  #   sender: "Authelia <noreply@yourdomain.com>"
+  #   subject: "[Authelia] {title}"

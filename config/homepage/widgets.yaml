@@ -1,0 +1,32 @@
+---
+# Homepage Widgets
+# System information and resources
+
+- logo:
+    icon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/synology.png
+
+- search:
+    provider: google
+    target: _blank
+
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: long
+      timeStyle: short
+      hourCycle: h23
+
+- resources:
+    cpu: true
+    memory: true
+    disk: /
+    uptime: true
+    units: metric
+    refresh: 3000
+
+- openmeteo:
+    label: Weather
+    latitude: 40.7128
+    longitude: -74.0060
+    units: metric
+    cache: 5

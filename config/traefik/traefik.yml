@@ -1,0 +1,83 @@
+##################################################
+# Traefik v3 Static Configuration
+# Reverse Proxy with Automatic HTTPS
+##################################################
+
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+api:
+  dashboard: true
+  insecure: false  # Set to true only for initial setup, then disable
+
+log:
+  level: INFO
+  filePath: /logs/traefik.log
+  format: json
+
+accessLog:
+  filePath: /logs/access.log
+  format: json
+  bufferingSize: 100
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "yourdomain.com"
+            sans:
+              - "*.yourdomain.com"
+      middlewares:
+        - security-headers@file
+        - rate-limit@file
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: proxy
+    watch: true
+
+  file:
+    directory: /dynamic
+    watch: true
+
+certificatesResolvers:
+  cloudflare:
+    acme:
+      email: your-email@example.com  # Change this
+      storage: /acme/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+        delayBeforeCheck: 30s
+
+# Metrics for Prometheus
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    buckets:
+      - 0.1
+      - 0.3
+      - 1.2
+      - 5.0
+
+# Health check endpoint
+ping:
+  entryPoint: web
