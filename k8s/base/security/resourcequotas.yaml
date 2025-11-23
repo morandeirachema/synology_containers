@@ -1,0 +1,170 @@
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    # Compute resources
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    # Storage
+    persistentvolumeclaims: "30"
+    requests.storage: 500Gi
+    # Objects
+    pods: "50"
+    services: "20"
+    configmaps: "50"
+    secrets: "50"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: security-quota
+  namespace: security
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "10"
+    requests.storage: 100Gi
+    pods: "20"
+    services: "10"
+    configmaps: "20"
+    secrets: "30"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tools-quota
+  namespace: tools
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    persistentvolumeclaims: "5"
+    requests.storage: 20Gi
+    pods: "10"
+    services: "5"
+    configmaps: "10"
+    secrets: "10"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: monitoring-quota
+  namespace: monitoring
+spec:
+  hard:
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.cpu: "12"
+    limits.memory: 24Gi
+    persistentvolumeclaims: "10"
+    requests.storage: 200Gi
+    pods: "30"
+    services: "15"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: logging-quota
+  namespace: logging
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "5"
+    requests.storage: 100Gi
+    pods: "20"
+    services: "10"
+---
+# LimitRanges - Define default limits and requests for containers
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+    # Container limits
+    - max:
+        cpu: "4"
+        memory: 8Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      type: Container
+    # PVC limits
+    - max:
+        storage: 200Gi
+      min:
+        storage: 1Gi
+      type: PersistentVolumeClaim
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: security-limits
+  namespace: security
+spec:
+  limits:
+    - max:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 256Mi
+      type: Container
+    - max:
+        storage: 50Gi
+      min:
+        storage: 1Gi
+      type: PersistentVolumeClaim
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tools-limits
+  namespace: tools
+spec:
+  limits:
+    - max:
+        cpu: "1"
+        memory: 2Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      type: Container
+    - max:
+        storage: 10Gi
+      min:
+        storage: 1Gi
+      type: PersistentVolumeClaim

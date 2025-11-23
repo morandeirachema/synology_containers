@@ -1,0 +1,135 @@
+# ServiceMonitors for Prometheus Operator
+# Automatically configure Prometheus to scrape service metrics
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: traefik
+  labels:
+    app: traefik
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: traefik
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vaultwarden
+  namespace: production
+  labels:
+    app: vaultwarden
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: vaultwarden
+  endpoints:
+    - port: http
+      interval: 60s
+      path: /metrics
+      scheme: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: authelia-postgres
+  namespace: security
+  labels:
+    app: authelia-postgres
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: authelia-postgres
+  endpoints:
+    - port: postgres
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vaultwarden-postgres
+  namespace: production
+  labels:
+    app: vaultwarden-postgres
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: vaultwarden-postgres
+  endpoints:
+    - port: postgres
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nextcloud-postgres
+  namespace: production
+  labels:
+    app: nextcloud-postgres
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: nextcloud-postgres
+  endpoints:
+    - port: postgres
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: authelia-redis
+  namespace: security
+  labels:
+    app: authelia-redis
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: authelia-redis
+  endpoints:
+    - port: redis
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nextcloud-redis
+  namespace: production
+  labels:
+    app: nextcloud-redis
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: nextcloud-redis
+  endpoints:
+    - port: redis
+      interval: 60s
+---
+# Generic application monitoring
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubernetes-pods
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      prometheus.io/scrape: "true"
+  endpoints:
+    - interval: 30s
+      port: metrics

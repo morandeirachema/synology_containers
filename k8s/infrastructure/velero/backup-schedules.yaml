@@ -1,0 +1,130 @@
+# Velero Backup Schedules
+# Automated backups for disaster recovery
+
+---
+# Daily full backup of all production namespaces
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-full-backup
+  namespace: velero
+spec:
+  # Run at 2 AM every day
+  schedule: "0 2 * * *"
+  template:
+    includedNamespaces:
+      - production
+      - security
+      - tools
+      - traefik
+      - conjur
+    includeClusterResources: true
+    snapshotVolumes: true
+    ttl: 720h  # 30 days retention
+    defaultVolumesToRestic: true
+    metadata:
+      labels:
+        backup-type: full
+        backup-frequency: daily
+---
+# Hourly backup of critical services (no volumes)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: hourly-config-backup
+  namespace: velero
+spec:
+  # Run every hour
+  schedule: "0 * * * *"
+  template:
+    includedNamespaces:
+      - production
+      - security
+      - traefik
+    includeClusterResources: false
+    snapshotVolumes: false
+    ttl: 168h  # 7 days retention
+    metadata:
+      labels:
+        backup-type: config-only
+        backup-frequency: hourly
+---
+# Weekly backup of monitoring and logging
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-monitoring-backup
+  namespace: velero
+spec:
+  # Run every Sunday at 3 AM
+  schedule: "0 3 * * 0"
+  template:
+    includedNamespaces:
+      - monitoring
+      - logging
+      - argocd
+    includeClusterResources: true
+    snapshotVolumes: true
+    ttl: 2160h  # 90 days retention
+    defaultVolumesToRestic: true
+    metadata:
+      labels:
+        backup-type: monitoring
+        backup-frequency: weekly
+---
+# Database-specific backup (StatefulSets only)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: database-backup
+  namespace: velero
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+  template:
+    includedNamespaces:
+      - production
+      - security
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/component: database
+    snapshotVolumes: true
+    ttl: 336h  # 14 days retention
+    defaultVolumesToRestic: true
+    metadata:
+      labels:
+        backup-type: database
+        backup-frequency: every-6-hours
+---
+# Backup hooks for consistent database snapshots
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-backup-hooks
+  namespace: velero
+data:
+  hooks.yaml: |
+    # PostgreSQL backup hooks
+    - name: postgres-backup-hook
+      includedNamespaces:
+        - production
+        - security
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: database
+      pre:
+        - exec:
+            container: postgres
+            command:
+              - /bin/bash
+              - -c
+              - pg_dump -U postgres -Fc > /tmp/backup.dump
+            onError: Fail
+            timeout: 5m
+      post:
+        - exec:
+            container: postgres
+            command:
+              - /bin/bash
+              - -c
+              - rm -f /tmp/backup.dump

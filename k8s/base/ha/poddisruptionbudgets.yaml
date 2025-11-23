@@ -1,0 +1,88 @@
+# PodDisruptionBudgets ensure minimum availability during voluntary disruptions
+# (node drains, cluster upgrades, etc.)
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: traefik-pdb
+  namespace: traefik
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: traefik
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authelia-pdb
+  namespace: security
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: authelia
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: homepage-pdb
+  namespace: production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: homepage
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: it-tools-pdb
+  namespace: tools
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: it-tools
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+---
+# Database PDBs - Critical data services
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authelia-postgres-pdb
+  namespace: security
+spec:
+  maxUnavailable: 0  # Never evict database pods
+  selector:
+    matchLabels:
+      app: authelia-postgres
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vaultwarden-postgres-pdb
+  namespace: production
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: vaultwarden-postgres
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextcloud-postgres-pdb
+  namespace: production
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: nextcloud-postgres
+  unhealthyPodEvictionPolicy: AlwaysAllow

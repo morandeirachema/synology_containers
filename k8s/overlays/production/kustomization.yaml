@@ -2,11 +2,17 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 metadata:
-  name: production-stack
+  name: production-stack-a-plus
   namespace: production
+  annotations:
+    grade: "A+"
+    security-level: "restricted"
+    ha-enabled: "true"
 
 # Reference base configurations
 bases:
+  - ../../base/security  # A+ Security baseline
+  - ../../base/ha        # High Availability configs
   - ../../base/traefik
   - ../../base/authelia
   - ../../base/vaultwarden
@@ -21,18 +27,21 @@ namespace: production
 commonLabels:
   environment: production
   managed-by: kustomize
+  security-grade: a-plus
 
 # Common annotations
 commonAnnotations:
   environment: production
   contact: admin@yourdomain.com
+  deployment-method: gitops
 
 # Production-specific patches
 patchesStrategicMerge:
   - replicas-patch.yaml
   - resources-patch.yaml
+  - ../../base/security/security-hardening.yaml  # Security hardening
 
-# Production image tags (pinned versions)
+# Production image tags (pinned versions for stability)
 images:
   - name: traefik
     newTag: v3.0.0
@@ -46,8 +55,12 @@ images:
     newTag: v0.8.10
   - name: corentinth/it-tools
     newTag: 2024.5.13-a0bc346
+  - name: postgres
+    newTag: 16-alpine
+  - name: redis
+    newTag: 7-alpine
 
-# Production replicas configuration
+# Production replicas configuration (overridden by HPA)
 replicas:
   - name: traefik
     count: 3

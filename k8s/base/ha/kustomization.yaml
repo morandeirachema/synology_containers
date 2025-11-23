@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: high-availability
+  annotations:
+    description: "High Availability configurations (PDBs, HPAs, anti-affinity)"
+
+resources:
+  - poddisruptionbudgets.yaml
+  - horizontalpodautoscalers.yaml
+
+# These patches add anti-affinity rules to deployments
+patchesStrategicMerge:
+  - affinity-patches.yaml
+
+commonLabels:
+  ha-enabled: "true"
+  managed-by: kustomize
