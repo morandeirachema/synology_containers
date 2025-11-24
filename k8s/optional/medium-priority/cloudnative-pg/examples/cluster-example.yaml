@@ -1,0 +1,137 @@
+# Example: 3-replica HA PostgreSQL cluster
+# This is a complete example showing production-ready configuration
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+  labels:
+    name: databases
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-ha
+  namespace: databases
+spec:
+  # High Availability: 1 primary + 2 replicas
+  instances: 3
+
+  # PostgreSQL version
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.1
+
+  # Bootstrap (first-time setup)
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: app-user-credentials
+
+  # Storage configuration
+  storage:
+    size: 20Gi
+    storageClass: local-path  # Adjust to your StorageClass
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # PostgreSQL configuration
+  postgresql:
+    parameters:
+      # Connection settings
+      max_connections: "100"
+
+      # Memory settings
+      shared_buffers: "256MB"
+      effective_cache_size: "1GB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+
+      # WAL settings
+      wal_level: "replica"
+      max_wal_senders: "10"
+      wal_keep_size: "1GB"
+
+      # Logging
+      log_destination: "stderr"
+      logging_collector: "on"
+      log_directory: "log"
+      log_filename: "postgresql-%Y-%m-%d_%H%M%S.log"
+      log_rotation_age: "1d"
+      log_rotation_size: "100MB"
+      log_line_prefix: "%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h "
+      log_checkpoints: "on"
+      log_connections: "on"
+      log_disconnections: "on"
+      log_lock_waits: "on"
+      log_statement: "ddl"
+
+  # Monitoring
+  monitoring:
+    enablePodMonitor: true
+
+  # Affinity: Spread replicas across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                cnpg.io/cluster: postgres-ha
+            topologyKey: kubernetes.io/hostname
+
+  # Node selector (optional)
+  # nodeSelector:
+  #   workload: database
+
+  # Backup configuration (uncomment when MinIO/S3 is available)
+  # backup:
+  #   barmanObjectStore:
+  #     destinationPath: s3://postgres-backups/
+  #     endpointURL: http://minio.storage.svc.cluster.local:9000
+  #     s3Credentials:
+  #       accessKeyId:
+  #         name: minio-credentials
+  #         key: ACCESS_KEY_ID
+  #       secretAccessKey:
+  #         name: minio-credentials
+  #         key: SECRET_ACCESS_KEY
+  #     wal:
+  #       compression: gzip
+  #       maxParallel: 2
+  #   retentionPolicy: "30d"
+
+---
+# Application user credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-user-credentials
+  namespace: databases
+type: kubernetes.io/basic-auth
+stringData:
+  username: app
+  password: "change-this-password-in-production"  # Use strong password!
+
+---
+# Scheduled Backup (requires backup configuration above)
+# apiVersion: postgresql.cnpg.io/v1
+# kind: ScheduledBackup
+# metadata:
+#   name: postgres-ha-daily-backup
+#   namespace: databases
+# spec:
+#   schedule: "0 3 * * *"  # Daily at 3 AM
+#   backupOwnerReference: self
+#   cluster:
+#     name: postgres-ha
+#   target: prefer-standby

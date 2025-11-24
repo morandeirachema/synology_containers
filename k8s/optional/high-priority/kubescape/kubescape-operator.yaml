@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubescape
+  namespace: kubescape
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescape-scanner
+rules:
+  # Read all cluster resources for scanning
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+  # Read cluster configuration
+  - nonResourceURLs: ["*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubescape-scanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubescape-scanner
+subjects:
+  - kind: ServiceAccount
+    name: kubescape
+    namespace: kubescape
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubescape-config
+  namespace: kubescape
+data:
+  config.json: |
+    {
+      "accountID": "homelab-talos-cluster",
+      "clusterName": "talos-homelab",
+      "capabilities": {
+        "configurationScan": "enable",
+        "continuousScan": "enable",
+        "relevancy": "disable",
+        "vulnerabilityScan": "disable"
+      },
+      "components": {
+        "kubescape": {
+          "enabled": true,
+          "scanInterval": "24h"
+        },
+        "storage": {
+          "enabled": true,
+          "backend": "memory"
+        },
+        "gateway": {
+          "enabled": false
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubescape
+  namespace: kubescape
+  labels:
+    app: kubescape
+spec:
+  selector:
+    app: kubescape
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubescape
+  namespace: kubescape
+  labels:
+    app: kubescape
+    app.kubernetes.io/name: kubescape
+    app.kubernetes.io/component: scanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubescape
+  template:
+    metadata:
+      labels:
+        app: kubescape
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kubescape
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kubescape
+          image: quay.io/kubescape/kubescape:v3.0.3
+          imagePullPolicy: IfNotPresent
+          command:
+            - kubescape
+          args:
+            - scan
+            - --enable-host-scan=false
+            - --submit=false
+            - --format=prometheus
+            - --output=/dev/stdout
+            - --keep-local
+            - --server
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: KS_DEFAULT_CONFIGMAP_NAME
+              value: kubescape-config
+            - name: KS_DEFAULT_CONFIGMAP_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KS_DOWNLOAD_ARTIFACTS
+              value: "true"
+            - name: KS_LOGGER_LEVEL
+              value: info
+            - name: KS_LOGGER_NAME
+              value: kubescape
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /.kubescape
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scan-results
+  namespace: kubescape
+  annotations:
+    description: "Stores latest Kubescape scan results"
+data:
+  latest-scan.json: "{}"

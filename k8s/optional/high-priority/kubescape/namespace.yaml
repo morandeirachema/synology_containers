@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubescape
+  labels:
+    name: kubescape
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Note: Kubescape performs compliance scanning but doesn't require privileged access
+# It runs under restricted Pod Security Standard

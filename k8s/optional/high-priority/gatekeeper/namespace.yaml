@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatekeeper-system
+  labels:
+    name: gatekeeper-system
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    control-plane: controller-manager
+    gatekeeper.sh/system: "yes"
+---
+# Note: Gatekeeper enforces policies but doesn't require privileged access itself
+# It runs under restricted Pod Security Standard

@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: chaos-mesh
+  namespace: chaos-mesh
+  annotations:
+    priority: LOW
+    category: chaos-engineering
+    optional: "true"
+    description: "Chaos engineering platform for resilience testing"
+
+resources:
+  - namespace.yaml
+  - chaos-mesh.yaml
+  - rbac.yaml
+  - monitoring.yaml
+
+namespace: chaos-mesh
+
+commonLabels:
+  app.kubernetes.io/part-of: chaos-mesh
+  optional-component: "true"
+  priority: low
+
+commonAnnotations:
+  documentation: "https://chaos-mesh.org/docs/"
+  optional: "true"
+  maintained-by: "CNCF"
+  install-method: "helm"
+  helm-chart: "chaos-mesh/chaos-mesh"
+  helm-version: "2.6.3"

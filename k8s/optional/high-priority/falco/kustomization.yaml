@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: falco
+  namespace: falco
+  annotations:
+    priority: HIGH
+    category: defense-in-depth-security
+    optional: "true"
+    description: "Runtime threat detection via syscall monitoring"
+
+resources:
+  - namespace.yaml
+  - falco-config.yaml
+  - falco-rules.yaml
+  - falco-daemonset.yaml
+  - falcosidekick.yaml
+  - monitoring.yaml
+
+namespace: falco
+
+commonLabels:
+  app.kubernetes.io/part-of: falco
+  optional-component: "true"
+  priority: high
+
+commonAnnotations:
+  documentation: "https://falco.org/docs/"
+  optional: "true"
+  maintained-by: "CNCF"

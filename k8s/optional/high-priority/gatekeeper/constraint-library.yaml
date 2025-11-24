@@ -1,0 +1,180 @@
+---
+# Block creation in default namespace
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockDefault
+metadata:
+  name: block-default-namespace
+spec:
+  match:
+    kinds:
+      - apiGroups: ["*"]
+        kinds: ["*"]
+    excludedNamespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+      - gatekeeper-system
+  enforcementAction: deny
+---
+# Require resource requests and limits
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredResources
+metadata:
+  name: require-resources
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    namespaces:
+      - production
+      - security
+  enforcementAction: dryrun  # Start with dryrun, change to 'deny' when ready
+---
+# Block :latest image tags
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockLatestImage
+metadata:
+  name: block-latest-image
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    namespaces:
+      - production
+  enforcementAction: deny
+---
+# Require read-only root filesystem
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireReadOnlyRoot
+metadata:
+  name: require-readonly-root
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    namespaces:
+      - production
+      - security
+  enforcementAction: dryrun  # Start with dryrun
+---
+# Block privileged containers (with exemptions)
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockPrivileged
+metadata:
+  name: block-privileged
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    excludedNamespaces:
+      - kube-system
+      - falco  # Falco requires privileged access
+  parameters:
+    exemptImages:
+      - "falcosecurity/falco"
+  enforcementAction: deny
+---
+# Require liveness and readiness probes
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredProbes
+metadata:
+  name: require-probes
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet"]
+    namespaces:
+      - production
+  enforcementAction: dryrun  # Start with dryrun
+---
+# Block LoadBalancer services (use Ingress)
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockLoadBalancer
+metadata:
+  name: block-loadbalancer
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Service"]
+    excludedNamespaces:
+      - kube-system
+      - metallb-system
+      - ingress-nginx
+  enforcementAction: dryrun  # Start with dryrun
+---
+# Require specific labels on production resources
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: require-production-labels
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet"]
+    namespaces:
+      - production
+  parameters:
+    labels:
+      - key: "app"
+        allowedRegex: "^[a-z0-9-]+$"
+      - key: "environment"
+        allowedRegex: "^production$"
+  enforcementAction: dryrun  # Start with dryrun
+---
+# Config for audit and mutation
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: Config
+metadata:
+  name: config
+  namespace: gatekeeper-system
+spec:
+  sync:
+    syncOnly:
+      - group: ""
+        version: "v1"
+        kind: "Namespace"
+      - group: ""
+        version: "v1"
+        kind: "Pod"
+      - group: "apps"
+        version: "v1"
+        kind: "Deployment"
+      - group: "apps"
+        version: "v1"
+        kind: "StatefulSet"
+      - group: "apps"
+        version: "v1"
+        kind: "DaemonSet"
+  validation:
+    traces:
+      - user: "system:serviceaccount:gatekeeper-system:gatekeeper-admin"
+        kind:
+          group: ""
+          version: "v1"
+          kind: "Pod"
+        dump: "All"
+  match:
+    - excludedNamespaces:
+        - kube-system
+        - kube-public
+        - kube-node-lease
+        - gatekeeper-system
+      processes:
+        - "*"

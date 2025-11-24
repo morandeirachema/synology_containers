@@ -1,0 +1,138 @@
+# RBAC for CloudNativePG Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-manager
+rules:
+  # Cluster CRD management
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - clusters
+      - clusters/status
+      - clusters/finalizers
+      - backups
+      - backups/status
+      - backups/finalizers
+      - scheduledbackups
+      - scheduledbackups/status
+      - poolers
+      - poolers/status
+      - poolers/finalizers
+    verbs:
+      - "*"
+  # Core resources for PostgreSQL management
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+      - services
+      - persistentvolumeclaims
+      - pods
+      - pods/exec
+      - pods/log
+      - events
+    verbs:
+      - "*"
+  # Deployments for pooler
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - "*"
+  # ServiceAccounts for PostgreSQL pods
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # Batch jobs for initdb
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - "*"
+  # RBAC for PostgreSQL ServiceAccounts
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+      - roles
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  # PodDisruptionBudgets for HA
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  # Monitoring
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - podmonitors
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  # Node information (for topology)
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  # Admission webhooks
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cnpg-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cnpg-manager
+subjects:
+  - kind: ServiceAccount
+    name: cnpg-manager
+    namespace: cnpg-system

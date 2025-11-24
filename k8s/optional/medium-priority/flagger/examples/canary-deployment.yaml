@@ -1,0 +1,262 @@
+# Example: Canary Deployment with Prometheus Metrics
+# This demonstrates a gradual rollout with automated promotion/rollback
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    name: demo
+    pod-security.kubernetes.io/enforce: baseline
+---
+# Sample application deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  namespace: demo
+  labels:
+    app: podinfo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: podinfo
+  template:
+    metadata:
+      labels:
+        app: podinfo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.5.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9898
+              protocol: TCP
+            - name: grpc
+              containerPort: 9999
+              protocol: TCP
+          env:
+            - name: PODINFO_UI_COLOR
+              value: "#34577c"
+          command:
+            - ./podinfo
+            - --port=9898
+            - --grpc-port=9999
+            - --level=info
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+# Service for the application
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  namespace: demo
+  labels:
+    app: podinfo
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9898
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: podinfo
+---
+# ServiceMonitor to expose metrics to Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: podinfo
+  namespace: demo
+  labels:
+    app: podinfo
+spec:
+  selector:
+    matchLabels:
+      app: podinfo
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+---
+# Canary release configuration
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: podinfo
+  namespace: demo
+spec:
+  # Target deployment to manage
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+
+  # Service configuration
+  service:
+    port: 9898
+    targetPort: 9898
+
+  # Canary analysis configuration
+  analysis:
+    # Analysis interval (check metrics every 1 minute)
+    interval: 1m
+
+    # Number of successful iterations before promotion
+    threshold: 5
+
+    # Maximum traffic percentage routed to canary
+    maxWeight: 50
+
+    # Traffic increment step percentage
+    stepWeight: 10
+
+    # Step weights (alternative to stepWeight for custom progression)
+    # stepWeights: [10, 20, 30, 40, 50]
+
+    # Metrics to validate during rollout
+    metrics:
+      # Built-in metric: HTTP request success rate
+      - name: request-success-rate
+        thresholdRange:
+          min: 99  # Require 99% success rate
+        interval: 1m
+
+      # Built-in metric: Request duration (P99 latency)
+      - name: request-duration
+        thresholdRange:
+          max: 500  # Maximum 500ms P99 latency
+        interval: 1m
+
+      # Custom metric: Error rate
+      - name: error-rate
+        templateRef:
+          name: error-rate
+          namespace: flagger-system
+        thresholdRange:
+          max: 5  # Maximum 5% error rate
+        interval: 1m
+
+    # Webhooks for testing (optional)
+    webhooks:
+      # Load test during canary analysis
+      - name: load-test
+        type: rollout
+        url: http://flagger-loadtester.demo/
+        timeout: 15s
+        metadata:
+          type: cmd
+          cmd: "hey -z 1m -q 10 -c 2 http://podinfo-canary.demo:9898/"
+
+      # Acceptance test before promotion
+      - name: acceptance-test
+        type: pre-rollout
+        url: http://flagger-loadtester.demo/
+        timeout: 30s
+        metadata:
+          type: bash
+          cmd: "curl -sd 'test' http://podinfo-canary.demo:9898/token | grep token"
+
+  # Alerting (optional)
+  alerts:
+    - name: "Canary deployment progress"
+      severity: info
+      providerRef:
+        name: slack
+        namespace: flagger-system
+
+    - name: "Canary deployment failed"
+      severity: error
+      providerRef:
+        name: slack
+        namespace: flagger-system
+---
+# Custom MetricTemplate for error rate
+apiVersion: flagger.app/v1beta1
+kind: MetricTemplate
+metadata:
+  name: error-rate
+  namespace: flagger-system
+spec:
+  provider:
+    type: prometheus
+    address: http://prometheus-operated.monitoring:9090
+
+  query: |
+    100 - sum(
+      rate(
+        http_requests_total{
+          namespace="{{ namespace }}",
+          deployment="{{ target }}",
+          status!~"5.."
+        }[{{ interval }}]
+      )
+    )
+    /
+    sum(
+      rate(
+        http_requests_total{
+          namespace="{{ namespace }}",
+          deployment="{{ target }}"
+        }[{{ interval }}]
+      )
+    ) * 100
+---
+# Usage Instructions:
+#
+# 1. Deploy this example:
+#    kubectl apply -f canary-deployment.yaml
+#
+# 2. Check canary status:
+#    kubectl get canary -n demo
+#
+# 3. Trigger a canary deployment by updating the image:
+#    kubectl -n demo set image deployment/podinfo podinfo=ghcr.io/stefanprodan/podinfo:6.6.0
+#
+# 4. Watch canary progress:
+#    kubectl get canary/podinfo -n demo -w
+#
+# 5. Expected progression:
+#    STATUS        WEIGHT   LASTTRANSITIONTIME
+#    Initialized   0        <timestamp>
+#    Progressing   10       <timestamp>  # 10% traffic to canary
+#    Progressing   20       <timestamp>  # 20% traffic to canary
+#    Progressing   30       <timestamp>  # 30% traffic to canary
+#    Progressing   40       <timestamp>  # 40% traffic to canary
+#    Progressing   50       <timestamp>  # 50% traffic to canary
+#    Promoting     0        <timestamp>  # All checks passed
+#    Succeeded     0        <timestamp>  # Promotion complete
+#
+# 6. Simulate a failed deployment (automatic rollback):
+#    kubectl -n demo set image deployment/podinfo podinfo=ghcr.io/stefanprodan/podinfo:6.6.0-broken
+#
+# 7. View canary events:
+#    kubectl describe canary/podinfo -n demo
+#
+# 8. Clean up:
+#    kubectl delete -f canary-deployment.yaml

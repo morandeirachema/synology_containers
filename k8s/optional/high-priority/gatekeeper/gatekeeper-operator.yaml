@@ -1,0 +1,354 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gatekeeper-admin
+  namespace: gatekeeper-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gatekeeper-manager-role
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+      - mutatingwebhookconfigurations
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - config.gatekeeper.sh
+      - constraints.gatekeeper.sh
+      - mutations.gatekeeper.sh
+      - status.gatekeeper.sh
+      - templates.gatekeeper.sh
+    resources:
+      - "*"
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gatekeeper-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gatekeeper-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: gatekeeper-admin
+    namespace: gatekeeper-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatekeeper-webhook-service
+  namespace: gatekeeper-system
+spec:
+  selector:
+    control-plane: controller-manager
+    gatekeeper.sh/operation: webhook
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gatekeeper-audit
+  namespace: gatekeeper-system
+  labels:
+    control-plane: audit-controller
+    gatekeeper.sh/operation: audit
+    gatekeeper.sh/system: "yes"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: audit-controller
+      gatekeeper.sh/operation: audit
+  template:
+    metadata:
+      labels:
+        control-plane: audit-controller
+        gatekeeper.sh/operation: audit
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      serviceAccountName: gatekeeper-admin
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: openpolicyagent/gatekeeper:v3.15.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /manager
+          args:
+            - --operation=audit
+            - --operation=status
+            - --operation=mutation-status
+            - --logtostderr
+            - --audit-interval=60
+            - --constraint-violations-limit=20
+            - --audit-from-cache=false
+            - --audit-chunk-size=500
+            - --emit-audit-events=true
+            - --emit-admission-events=false
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
+            - name: healthz
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gatekeeper-controller-manager
+  namespace: gatekeeper-system
+  labels:
+    control-plane: controller-manager
+    gatekeeper.sh/operation: webhook
+    gatekeeper.sh/system: "yes"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      gatekeeper.sh/operation: webhook
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        gatekeeper.sh/operation: webhook
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      serviceAccountName: gatekeeper-admin
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: openpolicyagent/gatekeeper:v3.15.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /manager
+          args:
+            - --operation=webhook
+            - --operation=mutation-webhook
+            - --logtostderr
+            - --port=8443
+            - --exempt-namespace=gatekeeper-system
+            - --disable-cert-rotation=false
+            - --max-serving-threads=-1
+            - --tls-min-version=1.3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: webhook-server
+              containerPort: 8443
+              protocol: TCP
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
+            - name: healthz
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: cert
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: cert
+          secret:
+            secretName: gatekeeper-webhook-server-cert
+            defaultMode: 420
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: gatekeeper.sh/operation
+                    operator: In
+                    values:
+                      - webhook
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: gatekeeper-validating-webhook-configuration
+webhooks:
+  - name: validation.gatekeeper.sh
+    admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: gatekeeper-webhook-service
+        namespace: gatekeeper-system
+        path: /v1/admit
+    failurePolicy: Ignore
+    matchPolicy: Exact
+    namespaceSelector:
+      matchExpressions:
+        - key: gatekeeper.sh/system
+          operator: NotIn
+          values:
+            - "yes"
+    rules:
+      - apiGroups:
+          - "*"
+        apiVersions:
+          - "*"
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - "*"
+    sideEffects: None
+    timeoutSeconds: 3
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: gatekeeper-validating-webhook-configuration-check
+webhooks:
+  - name: check.gatekeeper.sh
+    admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: gatekeeper-webhook-service
+        namespace: gatekeeper-system
+        path: /v1/admitlabel
+    failurePolicy: Fail
+    matchPolicy: Exact
+    namespaceSelector:
+      matchExpressions:
+        - key: gatekeeper.sh/system
+          operator: NotIn
+          values:
+            - "yes"
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - "*"
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - namespaces
+    sideEffects: None
+    timeoutSeconds: 3

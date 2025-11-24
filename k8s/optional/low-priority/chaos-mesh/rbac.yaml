@@ -1,0 +1,148 @@
+# RBAC for Chaos Mesh
+# The Helm chart creates comprehensive RBAC, but we define basic roles here
+# for custom ServiceAccounts that may need to manage chaos experiments.
+---
+# ClusterRole for viewing chaos experiments
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chaos-viewer
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+rules:
+  # View chaos experiments
+  - apiGroups: ["chaos-mesh.org"]
+    resources:
+      - podchaos
+      - networkchaos
+      - iochaos
+      - stresschaos
+      - timechaos
+      - kernelchaos
+      - dnschaos
+      - httpchaos
+      - awschaos
+      - gcpchaos
+      - azurechaos
+      - jvmchaos
+      - physicalmachinechaos
+      - schedules
+      - workflows
+    verbs: ["get", "list", "watch"]
+
+  # View chaos experiment status
+  - apiGroups: ["chaos-mesh.org"]
+    resources:
+      - podchaos/status
+      - networkchaos/status
+      - iochaos/status
+      - stresschaos/status
+      - timechaos/status
+      - kernelchaos/status
+      - dnschaos/status
+      - httpchaos/status
+      - schedules/status
+      - workflows/status
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRole for managing chaos experiments
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chaos-manager
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+rules:
+  # Full access to chaos experiments
+  - apiGroups: ["chaos-mesh.org"]
+    resources:
+      - podchaos
+      - networkchaos
+      - iochaos
+      - stresschaos
+      - timechaos
+      - kernelchaos
+      - dnschaos
+      - httpchaos
+      - awschaos
+      - gcpchaos
+      - azurechaos
+      - jvmchaos
+      - physicalmachinechaos
+      - schedules
+      - workflows
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Read pods (for targeting)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # Read namespaces (for targeting)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+# ServiceAccount for chaos experiments in test namespace
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-operator
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+---
+# Bind chaos-manager role to chaos-operator ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chaos-operator-manager
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chaos-manager
+subjects:
+  - kind: ServiceAccount
+    name: chaos-operator
+    namespace: chaos-mesh
+---
+# Role for dashboard to access chaos-mesh namespace resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chaos-dashboard-namespace
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+# RoleBinding for dashboard
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-dashboard-namespace
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chaos-dashboard-namespace
+subjects:
+  - kind: ServiceAccount
+    name: chaos-dashboard
+    namespace: chaos-mesh

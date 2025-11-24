@@ -1,0 +1,144 @@
+# Thanos Query - Global query layer for all Thanos components
+# Aggregates data from Store Gateway, Sidecar, and other Query instances
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+spec:
+  replicas: 2  # HA deployment
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos
+      app.kubernetes.io/component: query
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: thanos
+        app.kubernetes.io/component: query
+    spec:
+      serviceAccountName: thanos
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: thanos-query
+          image: quay.io/thanos/thanos:v0.35.0
+          args:
+            - query
+            - --http-address=0.0.0.0:9090
+            - --grpc-address=0.0.0.0:10901
+            - --log.level=info
+            - --log.format=logfmt
+            # Store endpoints (DNS-based service discovery)
+            - --store=dnssrv+_grpc._tcp.thanos-store.monitoring.svc.cluster.local
+            - --store=dnssrv+_grpc._tcp.prometheus-thanos-sidecar.monitoring.svc.cluster.local
+            # Query configuration
+            - --query.replica-label=replica
+            - --query.replica-label=prometheus_replica
+            - --query.timeout=5m
+            - --query.lookback-delta=15m
+            # Auto-downsampling for long-range queries
+            - --query.auto-downsampling
+            - --query.partial-response
+          ports:
+            - name: http
+              containerPort: 9090
+            - name: grpc
+              containerPort: 10901
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: thanos
+                    app.kubernetes.io/component: query
+                topologyKey: kubernetes.io/hostname
+---
+# Service for Thanos Query HTTP/PromQL API
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+    - name: grpc
+      port: 10901
+      targetPort: grpc
+  selector:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+---
+# Headless service for gRPC StoreAPI (for Query federation)
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query-grpc
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+    thanos-store-api: "true"
+spec:
+  clusterIP: None
+  ports:
+    - name: grpc
+      port: 10901
+      targetPort: grpc
+  selector:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query

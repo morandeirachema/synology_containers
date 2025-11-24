@@ -1,0 +1,137 @@
+# OpenCost - Kubernetes Cost Monitoring
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opencost
+  namespace: opencost
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opencost
+  namespace: opencost
+  labels:
+    app: opencost
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opencost
+  template:
+    metadata:
+      labels:
+        app: opencost
+    spec:
+      serviceAccountName: opencost
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: opencost
+          image: ghcr.io/opencost/opencost:1.110.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9003
+              protocol: TCP
+          env:
+            # Prometheus endpoint
+            - name: PROMETHEUS_SERVER_ENDPOINT
+              value: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+
+            # Custom pricing for homelab/on-prem
+            # Adjust based on your electricity costs
+            - name: CPU_PRICE
+              value: "0.031611"  # Per core-hour
+
+            - name: RAM_PRICE
+              value: "0.004237"  # Per GB-hour
+
+            - name: STORAGE_PRICE
+              value: "0.10"  # Per GB-month
+
+            # Cost allocation labels
+            - name: COST_ALLOCATION_LABELS
+              value: "team,app,environment,component"
+
+            # Data retention (in-memory)
+            - name: ETL_DAILY_STORE_DURATION_DAYS
+              value: "90"
+
+            - name: ETL_HOURLY_STORE_DURATION_HOURS
+              value: "168"  # 7 days
+
+            # Cluster ID
+            - name: CLUSTER_ID
+              value: "homelab-cluster"
+
+            # Log level
+            - name: LOG_LEVEL
+              value: "info"
+
+            # UI enabled
+            - name: UI_ENABLED
+              value: "true"
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opencost
+  namespace: opencost
+  labels:
+    app: opencost
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9003
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: opencost

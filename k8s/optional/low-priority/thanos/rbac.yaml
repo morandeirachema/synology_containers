@@ -1,0 +1,122 @@
+# RBAC for Thanos Components
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: thanos
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+---
+# ClusterRole for Thanos Query - needs to discover StoreAPI endpoints
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: thanos-query
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+rules:
+  # Discover endpoints for StoreAPI (Prometheus, Store Gateway, Sidecar)
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - services
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  # Discover ConfigMaps for configuration
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: thanos-query
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: thanos-query
+subjects:
+  - kind: ServiceAccount
+    name: thanos
+    namespace: monitoring
+---
+# ClusterRole for Thanos Store Gateway - read-only access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: thanos-store
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: store
+rules:
+  # Minimal permissions - Store Gateway only needs to read object storage
+  # No Kubernetes API access required beyond basic discovery
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: thanos-store
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: store
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: thanos-store
+subjects:
+  - kind: ServiceAccount
+    name: thanos
+    namespace: monitoring
+---
+# ClusterRole for Thanos Compactor - read/write object storage only
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: thanos-compactor
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: compactor
+rules:
+  # Minimal permissions - Compactor works independently
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: thanos-compactor
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: compactor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: thanos-compactor
+subjects:
+  - kind: ServiceAccount
+    name: thanos
+    namespace: monitoring

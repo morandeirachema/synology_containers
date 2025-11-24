@@ -1,0 +1,120 @@
+# Monitoring for Flagger
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flagger
+  namespace: flagger-system
+  labels:
+    app.kubernetes.io/name: flagger
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flagger
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+---
+# Prometheus Alerts for Flagger
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: flagger-alerts
+  namespace: flagger-system
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: flagger.availability
+      interval: 30s
+      rules:
+        - alert: FlaggerDown
+          expr: up{job="flagger"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: flagger
+          annotations:
+            summary: "Flagger operator is down"
+            description: "Flagger has been down for more than 5 minutes in namespace {{ $labels.namespace }}."
+
+        - alert: FlaggerHighMemoryUsage
+          expr: |
+            container_memory_working_set_bytes{namespace="flagger-system", container="flagger"}
+            / container_spec_memory_limit_bytes{namespace="flagger-system", container="flagger"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: flagger
+          annotations:
+            summary: "Flagger high memory usage"
+            description: "Flagger is using {{ $value | humanizePercentage }} of memory limit."
+
+    - name: flagger.canary
+      interval: 1m
+      rules:
+        - alert: FlaggerCanaryFailed
+          expr: |
+            flagger_canary_status{status="failed"} > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: flagger
+          annotations:
+            summary: "Flagger canary deployment failed"
+            description: "Canary {{ $labels.name }} in namespace {{ $labels.namespace }} has failed and rolled back."
+
+        - alert: FlaggerCanaryStuck
+          expr: |
+            flagger_canary_status{status="progressing"} > 0
+            and
+            increase(flagger_canary_weight[30m]) == 0
+          for: 30m
+          labels:
+            severity: warning
+            component: flagger
+          annotations:
+            summary: "Flagger canary stuck in progressing state"
+            description: "Canary {{ $labels.name }} in namespace {{ $labels.namespace }} has been progressing for more than 30 minutes without weight changes."
+
+        - alert: FlaggerHighFailureRate
+          expr: |
+            (
+              sum(rate(flagger_canary_status{status="failed"}[1h]))
+              /
+              sum(rate(flagger_canary_status[1h]))
+            ) > 0.2
+          for: 30m
+          labels:
+            severity: warning
+            component: flagger
+          annotations:
+            summary: "High canary failure rate"
+            description: "More than 20% of canary deployments are failing ({{ $value | humanizePercentage }})."
+
+        - alert: FlaggerMetricProviderError
+          expr: |
+            rate(flagger_client_errors_total{kind="MetricProvider"}[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: flagger
+          annotations:
+            summary: "Flagger metric provider errors"
+            description: "Flagger is experiencing errors connecting to metric provider {{ $labels.name }}."
+
+    - name: flagger.performance
+      interval: 5m
+      rules:
+        - alert: FlaggerReconciliationSlow
+          expr: |
+            histogram_quantile(0.99,
+              rate(flagger_canary_reconcile_duration_seconds_bucket[5m])
+            ) > 10
+          for: 10m
+          labels:
+            severity: warning
+            component: flagger
+          annotations:
+            summary: "Flagger reconciliation is slow"
+            description: "P99 canary reconciliation duration is {{ $value | humanizeDuration }}."

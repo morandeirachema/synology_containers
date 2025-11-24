@@ -1,0 +1,273 @@
+---
+# Daily CIS Benchmark scan
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubescape-scan-cis
+  namespace: kubescape
+  labels:
+    app: kubescape
+    scan-type: cis-benchmark
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: kubescape
+            scan-type: cis-benchmark
+        spec:
+          serviceAccountName: kubescape
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: kubescape-cis
+              image: quay.io/kubescape/kubescape:v3.0.3
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  echo "Starting CIS Kubernetes Benchmark scan..."
+                  kubescape scan framework cis-v1.23-t1.0.1 \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=json \
+                    --format-version=v2 \
+                    --output=/results/cis-scan-$(date +%Y%m%d).json \
+                    --verbose
+
+                  echo "Scan completed. Generating summary..."
+                  kubescape scan framework cis-v1.23-t1.0.1 \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=pretty-printer \
+                    --verbose
+
+                  echo "Updating ConfigMap with latest results..."
+                  kubectl create configmap scan-results \
+                    --from-file=latest-cis-scan.json=/results/cis-scan-$(date +%Y%m%d).json \
+                    -n kubescape \
+                    --dry-run=client -o yaml | kubectl apply -f -
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              volumeMounts:
+                - name: results
+                  mountPath: /results
+                - name: tmp
+                  mountPath: /tmp
+                - name: cache
+                  mountPath: /.kubescape
+          volumes:
+            - name: results
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
+            - name: cache
+              emptyDir: {}
+---
+# Weekly NSA/CISA Hardening Guide scan
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubescape-scan-nsa
+  namespace: kubescape
+  labels:
+    app: kubescape
+    scan-type: nsa-cisa
+spec:
+  schedule: "0 3 * * 0"  # Weekly on Sunday at 3 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: kubescape
+            scan-type: nsa-cisa
+        spec:
+          serviceAccountName: kubescape
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: kubescape-nsa
+              image: quay.io/kubescape/kubescape:v3.0.3
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  echo "Starting NSA/CISA Hardening Guide scan..."
+                  kubescape scan framework nsa \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=json \
+                    --format-version=v2 \
+                    --output=/results/nsa-scan-$(date +%Y%m%d).json \
+                    --verbose
+
+                  echo "Scan completed. Generating summary..."
+                  kubescape scan framework nsa \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=pretty-printer \
+                    --verbose
+
+                  echo "Updating ConfigMap with latest results..."
+                  kubectl create configmap scan-results \
+                    --from-file=latest-nsa-scan.json=/results/nsa-scan-$(date +%Y%m%d).json \
+                    -n kubescape \
+                    --dry-run=client -o yaml | kubectl apply -f -
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              volumeMounts:
+                - name: results
+                  mountPath: /results
+                - name: tmp
+                  mountPath: /tmp
+                - name: cache
+                  mountPath: /.kubescape
+          volumes:
+            - name: results
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
+            - name: cache
+              emptyDir: {}
+---
+# Monthly MITRE ATT&CK scan
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubescape-scan-mitre
+  namespace: kubescape
+  labels:
+    app: kubescape
+    scan-type: mitre-attack
+spec:
+  schedule: "0 4 1 * *"  # Monthly on 1st day at 4 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: kubescape
+            scan-type: mitre-attack
+        spec:
+          serviceAccountName: kubescape
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: kubescape-mitre
+              image: quay.io/kubescape/kubescape:v3.0.3
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  echo "Starting MITRE ATT&CK scan..."
+                  kubescape scan framework mitre \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=json \
+                    --format-version=v2 \
+                    --output=/results/mitre-scan-$(date +%Y%m%d).json \
+                    --verbose
+
+                  echo "Scan completed. Generating summary..."
+                  kubescape scan framework mitre \
+                    --enable-host-scan=false \
+                    --submit=false \
+                    --format=pretty-printer \
+                    --verbose
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              volumeMounts:
+                - name: results
+                  mountPath: /results
+                - name: tmp
+                  mountPath: /tmp
+                - name: cache
+                  mountPath: /.kubescape
+          volumes:
+            - name: results
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
+            - name: cache
+              emptyDir: {}

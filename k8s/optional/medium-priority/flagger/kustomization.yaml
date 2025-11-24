@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: flagger-system
+
+resources:
+  - namespace.yaml
+  - flagger.yaml
+  - rbac.yaml
+  - monitoring.yaml
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/part-of: flagger
+
+commonLabels:
+  managed-by: kustomize

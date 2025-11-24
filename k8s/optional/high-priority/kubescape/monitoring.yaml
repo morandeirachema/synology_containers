@@ -1,0 +1,102 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubescape
+  namespace: kubescape
+  labels:
+    app: kubescape
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: kubescape
+  endpoints:
+    - port: metrics
+      interval: 60s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubescape-alerts
+  namespace: kubescape
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: kubescape.rules
+      interval: 60s
+      rules:
+        # Kubescape health
+        - alert: KubescapeDown
+          expr: up{job="kubescape"} == 0
+          for: 10m
+          labels:
+            severity: warning
+            component: kubescape
+          annotations:
+            summary: "Kubescape is down"
+            description: "Kubescape has been down for more than 10 minutes"
+
+        # CIS scan failures
+        - alert: KubescapeCISScanFailed
+          expr: kube_job_status_failed{job_name=~"kubescape-scan-cis.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: kubescape
+            scan_type: cis
+          annotations:
+            summary: "Kubescape CIS scan failed"
+            description: "CIS Kubernetes Benchmark scan has failed"
+
+        # NSA scan failures
+        - alert: KubescapeNSAScanFailed
+          expr: kube_job_status_failed{job_name=~"kubescape-scan-nsa.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: kubescape
+            scan_type: nsa
+          annotations:
+            summary: "Kubescape NSA/CISA scan failed"
+            description: "NSA/CISA Hardening Guide scan has failed"
+
+        # Scan not running (daily CIS scan should run)
+        - alert: KubescapeCISScanNotRun
+          expr: time() - kube_job_status_start_time{job_name=~"kubescape-scan-cis.*"} > 86400 * 2
+          for: 1h
+          labels:
+            severity: warning
+            component: kubescape
+            scan_type: cis
+          annotations:
+            summary: "Kubescape CIS scan hasn't run recently"
+            description: "CIS scan hasn't run in over 2 days"
+
+        # High memory usage
+        - alert: KubescapeHighMemory
+          expr: |
+            container_memory_working_set_bytes{pod=~"kubescape-.*",namespace="kubescape"}
+            / container_spec_memory_limit_bytes{pod=~"kubescape-.*",namespace="kubescape"} > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: kubescape
+          annotations:
+            summary: "Kubescape pod using high memory"
+            description: "{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit"
+
+        # Scan job running too long
+        - alert: KubescapeScanRunningTooLong
+          expr: |
+            time() - kube_job_status_start_time{job_name=~"kubescape-scan-.*"} > 3600
+            and kube_job_status_active{job_name=~"kubescape-scan-.*"} > 0
+          for: 10m
+          labels:
+            severity: warning
+            component: kubescape
+          annotations:
+            summary: "Kubescape scan running for over 1 hour"
+            description: "{{ $labels.job_name }} has been running for over 1 hour. May be stuck."

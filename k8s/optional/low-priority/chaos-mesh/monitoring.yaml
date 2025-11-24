@@ -1,0 +1,179 @@
+# Monitoring for Chaos Mesh
+---
+# ServiceMonitor for Chaos Controller Manager
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-controller-manager
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: controller-manager
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/component: controller-manager
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+---
+# ServiceMonitor for Chaos Daemon
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-daemon
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: chaos-daemon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/component: chaos-daemon
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+---
+# ServiceMonitor for Chaos Dashboard
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-dashboard
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: chaos-dashboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/component: chaos-dashboard
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+---
+# Prometheus Alerts for Chaos Mesh
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: chaos-mesh-alerts
+  namespace: chaos-mesh
+  labels:
+    prometheus: kube-prometheus
+    app.kubernetes.io/name: chaos-mesh
+spec:
+  groups:
+    - name: chaos-mesh.controller
+      interval: 30s
+      rules:
+        - alert: ChaosControllerDown
+          expr: up{job="chaos-controller-manager"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos Mesh controller is down"
+            description: "The Chaos Mesh controller manager has been down for more than 5 minutes in namespace {{ $labels.namespace }}."
+
+        - alert: ChaosDaemonDown
+          expr: up{job="chaos-daemon"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos Mesh daemon is down on node {{ $labels.node }}"
+            description: "The Chaos Mesh daemon has been down on node {{ $labels.node }} for more than 5 minutes."
+
+        - alert: ChaosExperimentStuck
+          expr: |
+            (time() - chaos_mesh_experiment_created_at{status="Running"}) > 3600
+          for: 10m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos experiment {{ $labels.name }} running for >1 hour"
+            description: "Chaos experiment {{ $labels.name }} in namespace {{ $labels.namespace }} has been running for more than 1 hour. This may indicate a stuck experiment or forgotten cleanup."
+
+        - alert: ChaosExperimentFailedToStart
+          expr: |
+            increase(chaos_mesh_experiment_failed_total[10m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Multiple chaos experiments failing to start"
+            description: "{{ $value }} chaos experiments have failed to start in the last 10 minutes. Check controller logs for errors."
+
+        - alert: ChaosDaemonHighMemory
+          expr: |
+            container_memory_working_set_bytes{namespace="chaos-mesh",container="chaos-daemon"} /
+            container_spec_memory_limit_bytes{namespace="chaos-mesh",container="chaos-daemon"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos daemon using >90% memory on {{ $labels.node }}"
+            description: "Chaos daemon on node {{ $labels.node }} is using {{ $value | humanizePercentage }} of its memory limit."
+
+        - alert: ChaosControllerHighMemory
+          expr: |
+            container_memory_working_set_bytes{namespace="chaos-mesh",container="controller-manager"} /
+            container_spec_memory_limit_bytes{namespace="chaos-mesh",container="controller-manager"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos controller using >90% memory"
+            description: "Chaos Mesh controller manager is using {{ $value | humanizePercentage }} of its memory limit."
+
+    - name: chaos-mesh.experiments
+      interval: 30s
+      rules:
+        # Alert if chaos is running in production namespaces
+        # (assumes production namespaces have label 'environment=production')
+        - alert: ChaosRunningInProduction
+          expr: |
+            chaos_mesh_experiment_status{namespace=~"production|prod|default|kube-.*"} == 1
+          for: 1m
+          labels:
+            severity: critical
+            component: chaos-mesh
+          annotations:
+            summary: "CHAOS RUNNING IN PRODUCTION NAMESPACE"
+            description: "Chaos experiment {{ $labels.name }} of type {{ $labels.kind }} is running in production namespace {{ $labels.namespace }}. This is extremely dangerous!"
+
+        - alert: TooManyActiveChaosExperiments
+          expr: |
+            count(chaos_mesh_experiment_status == 1) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: chaos-mesh
+          annotations:
+            summary: "More than 10 chaos experiments running simultaneously"
+            description: "{{ $value }} chaos experiments are currently running. This may impact cluster stability or indicate forgotten experiments."
+
+        - alert: ChaosExperimentLongDuration
+          expr: |
+            (time() - chaos_mesh_experiment_created_at{status="Running"}) > 600
+          for: 5m
+          labels:
+            severity: info
+            component: chaos-mesh
+          annotations:
+            summary: "Chaos experiment {{ $labels.name }} running for >10 minutes"
+            description: "Chaos experiment {{ $labels.name }} in namespace {{ $labels.namespace }} has been running for {{ $value | humanizeDuration }}. Verify this is intentional."

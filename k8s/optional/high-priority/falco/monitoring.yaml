@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-metrics
+  namespace: falco
+  labels:
+    app: falco
+spec:
+  selector:
+    app: falco
+  ports:
+    - name: metrics
+      port: 8765
+      targetPort: 8765
+      protocol: TCP
+  clusterIP: None
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falco
+  namespace: falco
+  labels:
+    app: falco
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falcosidekick
+  namespace: falco
+  labels:
+    app: falcosidekick
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: falcosidekick
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: falco-alerts
+  namespace: falco
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: falco.rules
+      interval: 30s
+      rules:
+        # Critical security events
+        - alert: FalcoCriticalEvent
+          expr: increase(falco_events{priority="Critical"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: falco
+          annotations:
+            summary: "Falco detected critical security event"
+            description: "Falco detected {{ $value }} critical security events in the last 5 minutes"
+
+        # Warning level events
+        - alert: FalcoWarningEvents
+          expr: increase(falco_events{priority="Warning"}[15m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: falco
+          annotations:
+            summary: "High number of Falco warning events"
+            description: "Falco detected {{ $value }} warning events in the last 15 minutes"
+
+        # Privilege escalation attempts
+        - alert: FalcoPrivilegeEscalation
+          expr: increase(falco_events{rule=~".*Privilege.*"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: falco
+            attack: privilege_escalation
+          annotations:
+            summary: "Privilege escalation attempt detected"
+            description: "Falco detected privilege escalation attempts"
+
+        # Cryptocurrency mining
+        - alert: FalcoCryptoMining
+          expr: increase(falco_events{rule=~".*Mining.*"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: falco
+            attack: cryptomining
+          annotations:
+            summary: "Cryptocurrency mining detected"
+            description: "Falco detected potential cryptocurrency mining activity"
+
+        # Container shell access
+        - alert: FalcoShellInContainer
+          expr: increase(falco_events{rule=~".*Shell.*"}[30m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: falco
+          annotations:
+            summary: "Multiple shell spawns in containers"
+            description: "Falco detected {{ $value }} shell spawns in containers in the last 30 minutes"
+
+        # Falco health
+        - alert: FalcoDown
+          expr: up{job="falco"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: falco
+          annotations:
+            summary: "Falco is down"
+            description: "Falco pod on node {{ $labels.instance }} has been down for more than 5 minutes"
+
+        # Event drops
+        - alert: FalcoEventDrops
+          expr: rate(falco_kernel_event_drops_total[5m]) > 0.01
+          for: 5m
+          labels:
+            severity: warning
+            component: falco
+          annotations:
+            summary: "Falco is dropping kernel events"
+            description: "Falco is dropping {{ $value | humanizePercentage }} of kernel events on {{ $labels.instance }}"
+
+        # Falcosidekick health
+        - alert: FalcosidekickDown
+          expr: up{job="falcosidekick"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: falcosidekick
+          annotations:
+            summary: "Falcosidekick is down"
+            description: "Falcosidekick has been down for more than 5 minutes"
+
+        # Falcosidekick output errors
+        - alert: FalcosidekickOutputErrors
+          expr: rate(falcosidekick_outputs_errors_total[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: falcosidekick
+          annotations:
+            summary: "Falcosidekick output errors"
+            description: "Falcosidekick is experiencing errors forwarding to {{ $labels.output }}"

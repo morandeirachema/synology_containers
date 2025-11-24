@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-rules
+  namespace: falco
+data:
+  falco_rules.local.yaml: |
+    # Custom Falco rules for Kubernetes environment
+    # These complement the default Falco rules
+
+    # Container runtime security
+    - rule: Unexpected Privilege Escalation
+      desc: Detect privilege escalation attempts in containers
+      condition: >
+        spawned_process and
+        container and
+        proc.name in (sudo, su, setuid) and
+        not user_known_privileged_containers
+      output: >
+        Privilege escalation attempt detected
+        (user=%user.name command=%proc.cmdline container=%container.name
+        image=%container.image.repository:%container.image.tag)
+      priority: WARNING
+      tags: [container, privilege_escalation, mitre_privilege_escalation]
+
+    - rule: Unauthorized Network Connection
+      desc: Detect unexpected outbound network connections
+      condition: >
+        outbound and
+        container and
+        not fd.sip in (allowed_server_ips) and
+        not proc.name in (known_network_tools)
+      output: >
+        Unauthorized network connection detected
+        (user=%user.name connection=%fd.name container=%container.name
+        image=%container.image.repository:%container.image.tag)
+      priority: NOTICE
+      tags: [network, container, mitre_command_and_control]
+
+    - rule: Sensitive File Access
+      desc: Detect access to sensitive files in containers
+      condition: >
+        open_read and
+        container and
+        fd.name in (sensitive_files) and
+        not proc.name in (allowed_sensitive_file_readers)
+      output: >
+        Sensitive file access detected
+        (user=%user.name file=%fd.name command=%proc.cmdline
+        container=%container.name image=%container.image.repository:%container.image.tag)
+      priority: WARNING
+      tags: [filesystem, container, mitre_credential_access]
+
+    - rule: Container Shell Spawn
+      desc: Detect shell spawning in production containers
+      condition: >
+        spawned_process and
+        container and
+        container.image.repository != "busybox" and
+        proc.name in (shell_binaries) and
+        not user_known_debug_containers
+      output: >
+        Shell spawned in production container
+        (user=%user.name shell=%proc.name container=%container.name
+        image=%container.image.repository:%container.image.tag
+        parent=%proc.pname cmdline=%proc.cmdline)
+      priority: WARNING
+      tags: [container, shell, mitre_execution]
+
+    - rule: Cryptocurrency Mining Detected
+      desc: Detect potential cryptocurrency mining activity
+      condition: >
+        spawned_process and
+        container and
+        (proc.name in (xmrig, ethminer, ccminer, cgminer) or
+        proc.cmdline contains "stratum+tcp" or
+        proc.cmdline contains "pool.minergate")
+      output: >
+        Potential cryptocurrency mining detected
+        (user=%user.name command=%proc.cmdline container=%container.name
+        image=%container.image.repository:%container.image.tag)
+      priority: CRITICAL
+      tags: [container, cryptomining, mitre_impact]
+
+    - rule: Package Manager Execution
+      desc: Detect package manager execution in running containers
+      condition: >
+        spawned_process and
+        container and
+        proc.name in (package_mgmt_binaries) and
+        not user_known_package_manager_containers
+      output: >
+        Package manager executed in container
+        (user=%user.name command=%proc.cmdline container=%container.name
+        image=%container.image.repository:%container.image.tag)
+      priority: NOTICE
+      tags: [container, software, mitre_persistence]
+
+    # Kubernetes-specific rules
+    - rule: Contact Kubernetes API Server
+      desc: Detect direct contact to Kubernetes API server
+      condition: >
+        outbound and
+        container and
+        fd.sip = "10.96.0.1" and
+        fd.sport = 443 and
+        not user_known_k8s_api_callers
+      output: >
+        Direct Kubernetes API server contact
+        (user=%user.name command=%proc.cmdline container=%container.name
+        image=%container.image.repository:%container.image.tag)
+      priority: NOTICE
+      tags: [kubernetes, network, mitre_discovery]
+
+    - rule: Kubernetes Secret Access
+      desc: Detect access to Kubernetes secrets
+      condition: >
+        open_read and
+        container and
+        fd.name glob "/var/run/secrets/kubernetes.io/serviceaccount/*" and
+        not proc.name in (known_sa_readers)
+      output: >
+        Kubernetes service account secret accessed
+        (user=%user.name file=%fd.name command=%proc.cmdline
+        container=%container.name image=%container.image.repository:%container.image.tag)
+      priority: WARNING
+      tags: [kubernetes, secrets, mitre_credential_access]
+
+    # Macros and lists
+    - macro: user_known_privileged_containers
+      condition: (container.image.repository in (known_privileged_images))
+
+    - macro: user_known_debug_containers
+      condition: (container.image.repository in (debug_images))
+
+    - macro: user_known_package_manager_containers
+      condition: (container.image.repository in (build_images))
+
+    - macro: user_known_k8s_api_callers
+      condition: (container.image.repository in (k8s_api_caller_images))
+
+    - list: known_privileged_images
+      items: []
+
+    - list: debug_images
+      items: [busybox, alpine, nicolaka/netshoot]
+
+    - list: build_images
+      items: [node, python, golang, maven]
+
+    - list: k8s_api_caller_images
+      items: [kubectl, k9s]
+
+    - list: shell_binaries
+      items: [bash, sh, zsh, fish, ash]
+
+    - list: package_mgmt_binaries
+      items: [apt, apt-get, yum, dnf, apk, pip, npm, gem]
+
+    - list: known_network_tools
+      items: [curl, wget, nc, ncat, telnet]
+
+    - list: sensitive_files
+      items: [/etc/shadow, /etc/passwd, /root/.ssh/id_rsa, /root/.ssh/id_dsa]
+
+    - list: allowed_sensitive_file_readers
+      items: [sshd, systemd]
+
+    - list: allowed_server_ips
+      items: []
+
+    - list: known_sa_readers
+      items: [kubectl, k9s]

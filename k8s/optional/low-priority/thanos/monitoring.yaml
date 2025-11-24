@@ -1,0 +1,284 @@
+# Monitoring for Thanos Components
+# ServiceMonitors for Prometheus scraping and PrometheusRules for alerting
+---
+# ServiceMonitor for Thanos Query
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-query
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: query
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos
+      app.kubernetes.io/component: query
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+# ServiceMonitor for Thanos Store Gateway
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-store
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: store
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos
+      app.kubernetes.io/component: store
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+# ServiceMonitor for Thanos Compactor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-compactor
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: compactor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos
+      app.kubernetes.io/component: compactor
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+# ServiceMonitor for Thanos Sidecar (via Prometheus pods)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-sidecar
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: sidecar
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos
+      app.kubernetes.io/component: sidecar
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+# Prometheus Alerts for Thanos
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: thanos-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    app.kubernetes.io/name: thanos
+spec:
+  groups:
+    - name: thanos.query
+      interval: 30s
+      rules:
+        - alert: ThanosQueryDown
+          expr: up{job="thanos-query"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Query is down"
+            description: "Thanos Query in namespace {{ $labels.namespace }} has been down for more than 5 minutes. Historical metrics queries will fail."
+
+        - alert: ThanosQueryHighLatency
+          expr: histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket{job="thanos-query"}[5m]))) > 5
+          for: 10m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos Query high latency"
+            description: "Thanos Query 95th percentile latency is {{ $value }}s (>5s threshold). Long-term queries may be slow."
+
+        - alert: ThanosQueryGrpcErrorRate
+          expr: rate(grpc_server_handled_total{job="thanos-query",grpc_code=~"Unknown|Internal|Unavailable"}[5m]) > 0.01
+          for: 5m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos Query gRPC errors"
+            description: "Thanos Query is experiencing {{ $value | humanizePercentage }} gRPC error rate."
+
+    - name: thanos.store
+      interval: 30s
+      rules:
+        - alert: ThanosStoreDown
+          expr: up{job="thanos-store"} == 0
+          for: 10m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos Store Gateway is down"
+            description: "Thanos Store Gateway {{ $labels.pod }} has been down for more than 10 minutes. Historical queries may be incomplete."
+
+        - alert: ThanosStoreHighBlockLoadTime
+          expr: histogram_quantile(0.95, sum by (job, le) (rate(thanos_bucket_store_block_load_duration_seconds_bucket[5m]))) > 60
+          for: 10m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos Store slow block loading"
+            description: "Thanos Store Gateway is taking {{ $value }}s to load blocks (>60s threshold). Queries may be slow."
+
+        - alert: ThanosStoreBlockLoadFailed
+          expr: rate(thanos_bucket_store_block_load_failures_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Store block load failures"
+            description: "Thanos Store Gateway {{ $labels.pod }} is failing to load blocks from object storage."
+
+        - alert: ThanosStoreObjstoreErrors
+          expr: rate(thanos_objstore_bucket_operation_failures_total[5m]) > 0.01
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Store object storage errors"
+            description: "Thanos Store Gateway {{ $labels.pod }} is experiencing object storage errors at {{ $value }} ops/sec."
+
+    - name: thanos.compactor
+      interval: 30s
+      rules:
+        - alert: ThanosCompactorDown
+          expr: up{job="thanos-compactor"} == 0
+          for: 30m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos Compactor is down"
+            description: "Thanos Compactor has been down for more than 30 minutes. Downsampling and retention policies are not being applied."
+
+        - alert: ThanosCompactionFailed
+          expr: rate(thanos_compact_group_compactions_failures_total[1h]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Compactor failures"
+            description: "Thanos Compactor is experiencing compaction failures at {{ $value }} failures/sec."
+
+        - alert: ThanosCompactionHalted
+          expr: time() - thanos_compact_last_run_group_completion_timestamp_seconds > 86400
+          for: 1h
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Compactor halted"
+            description: "Thanos Compactor has not successfully completed a compaction in {{ $value | humanizeDuration }}. Data retention may not be enforced."
+
+        - alert: ThanosCompactorHighDiskUsage
+          expr: (thanos_compact_halted == 1) and ((1 - (node_filesystem_avail_bytes{mountpoint="/var/thanos/compactor"} / node_filesystem_size_bytes{mountpoint="/var/thanos/compactor"})) > 0.85)
+          for: 15m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Compactor disk space critical"
+            description: "Thanos Compactor working directory is {{ $value | humanizePercentage }} full and compaction is halted."
+
+    - name: thanos.sidecar
+      interval: 30s
+      rules:
+        - alert: ThanosSidecarUploadFailed
+          expr: rate(thanos_shipper_uploads_total{result="error"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Sidecar upload failures"
+            description: "Thanos Sidecar {{ $labels.pod }} is failing to upload blocks to object storage. Historical data may be lost."
+
+        - alert: ThanosSidecarPrometheusDown
+          expr: thanos_sidecar_prometheus_up == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos Sidecar lost Prometheus connectivity"
+            description: "Thanos Sidecar {{ $labels.pod }} cannot connect to Prometheus. Block shipping is halted."
+
+    - name: thanos.general
+      interval: 30s
+      rules:
+        - alert: ThanosObjectStorageUnavailable
+          expr: rate(thanos_objstore_bucket_operation_failures_total[5m]) > 0.05
+          for: 10m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos object storage unavailable"
+            description: "Thanos component {{ $labels.pod }} is experiencing high object storage failure rate ({{ $value | humanizePercentage }}). Check MinIO/S3 connectivity."
+
+        - alert: ThanosComponentHighMemory
+          expr: container_memory_working_set_bytes{namespace="monitoring",pod=~"thanos-.*"} / container_spec_memory_limit_bytes{namespace="monitoring",pod=~"thanos-.*"} > 0.9
+          for: 15m
+          labels:
+            severity: warning
+            component: thanos
+          annotations:
+            summary: "Thanos component high memory usage"
+            description: "Thanos component {{ $labels.pod }} is using {{ $value | humanizePercentage }} of memory limit."
+
+        - alert: ThanosStoreAPIGone
+          expr: absent(up{job=~"thanos-.*"})
+          for: 5m
+          labels:
+            severity: critical
+            component: thanos
+          annotations:
+            summary: "Thanos StoreAPI endpoints missing"
+            description: "No Thanos StoreAPI endpoints are available. Thanos Query cannot retrieve historical metrics."

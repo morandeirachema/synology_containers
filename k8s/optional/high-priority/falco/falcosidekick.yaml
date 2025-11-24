@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: falcosidekick
+  namespace: falco
+  labels:
+    app: falcosidekick
+spec:
+  selector:
+    app: falcosidekick
+  ports:
+    - name: http
+      port: 2801
+      targetPort: 2801
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: falcosidekick
+  namespace: falco
+  labels:
+    app: falcosidekick
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: falcosidekick
+  template:
+    metadata:
+      labels:
+        app: falcosidekick
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2801"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsUser: 1234
+        runAsNonRoot: true
+        fsGroup: 1234
+      containers:
+        - name: falcosidekick
+          image: falcosecurity/falcosidekick:2.28.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            # Prometheus output
+            - name: PROMETHEUS_ENABLED
+              value: "true"
+            - name: PROMETHEUS_PORT
+              value: "2801"
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+
+            # Loki output (for centralized logging)
+            - name: LOKI_ENABLED
+              value: "true"
+            - name: LOKI_HOSTPORT
+              value: "http://loki.logging:3100"
+            - name: LOKI_TENANT
+              value: "falco"
+
+            # Webhook output (for custom integrations)
+            - name: WEBHOOK_ENABLED
+              value: "false"
+
+            # Alert formatting
+            - name: CUSTOMFIELDS
+              value: "environment:homelab,cluster:talos"
+
+            # Debug
+            - name: DEBUG
+              value: "false"
+
+            # Minimum priority to forward
+            - name: MINIMUMPRIORITY
+              value: "notice"
+          ports:
+            - name: http
+              containerPort: 2801
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 2801
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 2801
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - falcosidekick
+                topologyKey: kubernetes.io/hostname

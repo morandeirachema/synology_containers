@@ -1,0 +1,85 @@
+# Chaos Mesh Installation via Helm Chart
+# Reference: https://chaos-mesh.org/docs/production-installation-using-helm/
+#
+# This uses Kustomize remote resources to pull the official Chaos Mesh manifests
+# generated from the Helm chart. For production use, consider using Helm directly
+# for more fine-grained control over values.
+#
+# Install manually with Helm (alternative to Kustomize):
+# helm repo add chaos-mesh https://charts.chaos-mesh.org
+# helm install chaos-mesh chaos-mesh/chaos-mesh -n chaos-mesh --version 2.6.3 --set dashboard.create=true
+#
+# Components installed:
+# - chaos-controller-manager: Main controller for chaos experiments
+# - chaos-daemon: DaemonSet for executing chaos on each node
+# - chaos-dashboard: Web UI for managing experiments (port 2333)
+#
+# For Kustomize deployment, we reference the official manifests:
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-mesh-install-info
+  namespace: chaos-mesh
+data:
+  installation: |
+    Chaos Mesh is installed via Helm chart.
+
+    To install Chaos Mesh, run:
+
+    helm repo add chaos-mesh https://charts.chaos-mesh.org
+    helm repo update
+
+    helm install chaos-mesh chaos-mesh/chaos-mesh \
+      --namespace chaos-mesh \
+      --version 2.6.3 \
+      --set chaosDaemon.runtime=containerd \
+      --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+      --set dashboard.create=true \
+      --set dashboard.securityMode=false \
+      --set controllerManager.replicaCount=1 \
+      --set controllerManager.resources.requests.cpu=100m \
+      --set controllerManager.resources.requests.memory=128Mi \
+      --set controllerManager.resources.limits.cpu=500m \
+      --set controllerManager.resources.limits.memory=512Mi \
+      --set chaosDaemon.resources.requests.cpu=100m \
+      --set chaosDaemon.resources.requests.memory=128Mi \
+      --set chaosDaemon.resources.limits.cpu=500m \
+      --set chaosDaemon.resources.limits.memory=512Mi \
+      --set dashboard.resources.requests.cpu=50m \
+      --set dashboard.resources.requests.memory=64Mi \
+      --set dashboard.resources.limits.cpu=200m \
+      --set dashboard.resources.limits.memory=256Mi
+
+    Access the dashboard:
+    kubectl port-forward -n chaos-mesh svc/chaos-dashboard 2333:2333
+
+    Then open http://localhost:2333 in your browser.
+
+    To uninstall:
+    helm uninstall chaos-mesh -n chaos-mesh
+
+    Note: This installation uses containerd as the container runtime,
+    which is the default for Talos Linux. If using a different runtime
+    (docker, cri-o), adjust the socketPath accordingly.
+---
+# Service for accessing the Chaos Dashboard
+# This is created by Helm, but we define it here for reference
+apiVersion: v1
+kind: Service
+metadata:
+  name: chaos-dashboard
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: chaos-dashboard
+spec:
+  type: ClusterIP
+  ports:
+    - port: 2333
+      targetPort: 2333
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: chaos-dashboard

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+# Note: Thanos components run in the existing monitoring namespace
+# alongside Prometheus. This ensures they can access Prometheus TSDB
+# and share ServiceMonitor discovery.

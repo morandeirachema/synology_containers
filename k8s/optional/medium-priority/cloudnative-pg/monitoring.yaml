@@ -1,0 +1,109 @@
+# Monitoring for CloudNativePG Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cnpg-controller-manager
+  namespace: cnpg-system
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+---
+# Prometheus Alerts for CloudNativePG
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cnpg-alerts
+  namespace: cnpg-system
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: cloudnative-pg.operator
+      interval: 30s
+      rules:
+        - alert: CNPGOperatorDown
+          expr: up{job="cnpg-controller-manager"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: cloudnative-pg
+          annotations:
+            summary: "CloudNativePG operator is down"
+            description: "The CloudNativePG operator has been down for more than 5 minutes in namespace {{ $labels.namespace }}."
+
+        - alert: CNPGClusterDown
+          expr: cnpg_collector_up == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: cloudnative-pg
+          annotations:
+            summary: "PostgreSQL cluster {{ $labels.cluster }} is down"
+            description: "PostgreSQL cluster {{ $labels.cluster }} in namespace {{ $labels.namespace }} has been down for more than 5 minutes."
+
+        - alert: CNPGReplicationLagHigh
+          expr: cnpg_pg_replication_lag_seconds > 30
+          for: 10m
+          labels:
+            severity: warning
+            component: cloudnative-pg
+          annotations:
+            summary: "High replication lag on {{ $labels.cluster }}"
+            description: "Replication lag on PostgreSQL cluster {{ $labels.cluster }} is {{ $value }} seconds (>30s threshold)."
+
+        - alert: CNPGBackupFailed
+          expr: increase(cnpg_pg_backup_failed_total[1h]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: cloudnative-pg
+          annotations:
+            summary: "PostgreSQL backup failed for {{ $labels.cluster }}"
+            description: "Backup for PostgreSQL cluster {{ $labels.cluster }} has failed in the last hour."
+
+        - alert: CNPGHighConnections
+          expr: (cnpg_pg_stat_database_numbackends / cnpg_pg_settings_max_connections) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            component: cloudnative-pg
+          annotations:
+            summary: "High connection count on {{ $labels.cluster }}"
+            description: "PostgreSQL cluster {{ $labels.cluster }} is using {{ $value | humanizePercentage }} of max connections."
+
+        - alert: CNPGDiskSpaceNearFull
+          expr: (cnpg_pg_database_size_bytes / (1024*1024*1024)) > 0.85
+          for: 15m
+          labels:
+            severity: warning
+            component: cloudnative-pg
+          annotations:
+            summary: "PostgreSQL disk space >85% on {{ $labels.cluster }}"
+            description: "Database {{ $labels.datname }} on cluster {{ $labels.cluster }} is using {{ $value | humanize }}GB."
+
+        - alert: CNPGReplicaMissing
+          expr: cnpg_pg_replication_in_recovery != (cnpg_collector_instances - 1)
+          for: 10m
+          labels:
+            severity: warning
+            component: cloudnative-pg
+          annotations:
+            summary: "Replica count mismatch on {{ $labels.cluster }}"
+            description: "PostgreSQL cluster {{ $labels.cluster }} has fewer replicas than expected."
+
+        - alert: CNPGWALArchivingFailing
+          expr: increase(cnpg_pg_stat_archiver_failed_count[1h]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: cloudnative-pg
+          annotations:
+            summary: "WAL archiving failing on {{ $labels.cluster }}"
+            description: "WAL archiving has failed on cluster {{ $labels.cluster }} in the last hour. Backups may be incomplete."

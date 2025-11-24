@@ -1,0 +1,94 @@
+# Monitoring for OpenCost
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opencost
+  namespace: opencost
+  labels:
+    app: opencost
+spec:
+  selector:
+    matchLabels:
+      app: opencost
+  endpoints:
+    - port: http
+      interval: 60s
+      path: /metrics
+---
+# Prometheus Alerts for OpenCost
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opencost-alerts
+  namespace: opencost
+  labels:
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: opencost.availability
+      interval: 30s
+      rules:
+        - alert: OpenCostDown
+          expr: up{job="opencost"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: opencost
+          annotations:
+            summary: "OpenCost is down"
+            description: "OpenCost has been down for more than 5 minutes in namespace {{ $labels.namespace }}."
+
+        - alert: OpenCostHighMemoryUsage
+          expr: |
+            container_memory_working_set_bytes{namespace="opencost", container="opencost"}
+            / container_spec_memory_limit_bytes{namespace="opencost", container="opencost"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: opencost
+          annotations:
+            summary: "OpenCost high memory usage"
+            description: "OpenCost is using {{ $value | humanizePercentage }} of memory limit."
+
+    - name: opencost.costs
+      interval: 1h
+      rules:
+        - alert: HighCostIncrease
+          expr: |
+            (
+              sum(rate(opencost_allocation_total_cost[24h])) -
+              sum(rate(opencost_allocation_total_cost[24h] offset 24h))
+            ) / sum(rate(opencost_allocation_total_cost[24h] offset 24h)) > 0.5
+          for: 1h
+          labels:
+            severity: warning
+            component: opencost
+          annotations:
+            summary: "High cost increase detected"
+            description: "Total cluster costs increased by {{ $value | humanizePercentage }} in the last 24 hours."
+
+        - alert: LowCPUEfficiency
+          expr: |
+            avg by (namespace) (
+              opencost_allocation_cpu_usage / opencost_allocation_cpu_request
+            ) < 0.3
+          for: 6h
+          labels:
+            severity: info
+            component: opencost
+          annotations:
+            summary: "Low CPU efficiency in {{ $labels.namespace }}"
+            description: "Namespace {{ $labels.namespace }} has CPU efficiency of {{ $value | humanizePercentage }}. Consider reducing CPU requests."
+
+        - alert: LowRAMEfficiency
+          expr: |
+            avg by (namespace) (
+              opencost_allocation_ram_usage / opencost_allocation_ram_request
+            ) < 0.3
+          for: 6h
+          labels:
+            severity: info
+            component: opencost
+          annotations:
+            summary: "Low RAM efficiency in {{ $labels.namespace }}"
+            description: "Namespace {{ $labels.namespace }} has RAM efficiency of {{ $value | humanizePercentage }}. Consider reducing memory requests."

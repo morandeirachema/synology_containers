@@ -1,0 +1,152 @@
+# Thanos Sidecar - Attaches to Prometheus pods
+# This file documents the sidecar configuration that should be added to Prometheus StatefulSet
+# The sidecar uploads 2-hour Prometheus TSDB blocks to object storage and exposes StoreAPI
+---
+# Example: Add this sidecar container to your Prometheus StatefulSet
+# spec:
+#   template:
+#     spec:
+#       containers:
+#       - name: prometheus
+#         # ... existing Prometheus config ...
+#       - name: thanos-sidecar   # <-- Add this sidecar
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thanos-sidecar-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: sidecar
+data:
+  # Example sidecar container spec (to be added to Prometheus StatefulSet)
+  sidecar-container.yaml: |
+    - name: thanos-sidecar
+      image: quay.io/thanos/thanos:v0.35.0
+      args:
+        - sidecar
+        - --tsdb.path=/prometheus
+        - --prometheus.url=http://localhost:9090
+        - --objstore.config-file=/etc/thanos/objstore.yml
+        - --grpc-address=0.0.0.0:10901
+        - --http-address=0.0.0.0:10902
+      ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+      volumeMounts:
+        - name: prometheus-data
+          mountPath: /prometheus
+          readOnly: false  # Needs write for shipper metadata
+        - name: objstore-config
+          mountPath: /etc/thanos
+          readOnly: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 100Mi
+        limits:
+          cpu: 200m
+          memory: 500Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      livenessProbe:
+        httpGet:
+          path: /-/healthy
+          port: 10902
+        initialDelaySeconds: 30
+        periodSeconds: 10
+      readinessProbe:
+        httpGet:
+          path: /-/ready
+          port: 10902
+        initialDelaySeconds: 10
+        periodSeconds: 5
+
+  # Example volumes to add to Prometheus StatefulSet
+  sidecar-volumes.yaml: |
+    - name: objstore-config
+      secret:
+        secretName: thanos-objstore-config
+---
+# Service for Thanos Sidecar StoreAPI
+# This allows Thanos Query to discover and connect to the sidecar
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-thanos-sidecar
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+    app.kubernetes.io/component: sidecar
+    thanos-store-api: "true"  # Discovery label for Thanos Query
+spec:
+  clusterIP: None  # Headless service for StoreAPI discovery
+  ports:
+    - name: grpc
+      port: 10901
+      targetPort: grpc
+    - name: http
+      port: 10902
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: prometheus
+    prometheus: k8s
+---
+# Example Secret for Object Storage Configuration
+# Create this secret with your actual MinIO/S3 credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objstore-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: thanos
+type: Opaque
+stringData:
+  objstore.yml: |
+    type: S3
+    config:
+      bucket: thanos-storage
+      endpoint: minio.storage.svc.cluster.local:9000
+      access_key: CHANGE_ME
+      secret_key: CHANGE_ME
+      insecure: true
+---
+# Instructions for adding sidecar to existing Prometheus
+#
+# Option 1: Patch existing Prometheus resource (if using prometheus-operator)
+# kubectl patch prometheus k8s -n monitoring --type=json -p='[
+#   {
+#     "op": "add",
+#     "path": "/spec/thanos",
+#     "value": {
+#       "image": "quay.io/thanos/thanos:v0.35.0",
+#       "version": "v0.35.0",
+#       "objectStorageConfig": {
+#         "name": "thanos-objstore-config",
+#         "key": "objstore.yml"
+#       }
+#     }
+#   }
+# ]'
+#
+# Option 2: Manual StatefulSet edit
+# kubectl edit statefulset prometheus-k8s -n monitoring
+# Add the sidecar container from thanos-sidecar-config ConfigMap above
+#
+# Option 3: Add to Prometheus CRD spec (recommended)
+# spec:
+#   thanos:
+#     image: quay.io/thanos/thanos:v0.35.0
+#     version: v0.35.0
+#     objectStorageConfig:
+#       name: thanos-objstore-config
+#       key: objstore.yml

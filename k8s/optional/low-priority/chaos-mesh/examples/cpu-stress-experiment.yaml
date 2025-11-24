@@ -1,0 +1,373 @@
+# Example: CPU Stress Experiment to Test Resource Limits & HPA
+#
+# Purpose: Apply CPU stress to validate:
+# - Resource limits prevent CPU exhaustion
+# - Horizontal Pod Autoscaler (HPA) scales correctly
+# - OOMKiller behavior under memory stress
+# - Container throttling behavior
+#
+# Prerequisites:
+# 1. Create test namespace: kubectl create namespace chaos-test
+# 2. Deploy test application with resource limits (see below)
+# 3. Optional: Configure HPA for autoscaling test
+#
+# Run this experiment:
+# kubectl apply -f cpu-stress-experiment.yaml
+#
+# Observe:
+# kubectl top pods -n chaos-test --watch
+# kubectl get hpa -n chaos-test -w
+#
+# Expected outcome:
+# - CPU usage hits resource limit
+# - Pod is throttled (not killed)
+# - HPA scales up (if configured)
+# - Other pods remain unaffected
+---
+# Test Application: Simple HTTP server with resource limits
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stress-test-app
+  namespace: chaos-test
+  labels:
+    app: stress-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stress-test
+  template:
+    metadata:
+      labels:
+        app: stress-test
+        chaos-ready: "true"
+    spec:
+      containers:
+      - name: app
+        image: nginx:alpine
+        resources:
+          requests:
+            cpu: 100m        # Request 100 millicores
+            memory: 64Mi     # Request 64 MiB
+          limits:
+            cpu: 200m        # Limit to 200 millicores
+            memory: 128Mi    # Limit to 128 MiB
+        ports:
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stress-test-app
+  namespace: chaos-test
+spec:
+  selector:
+    app: stress-test
+  ports:
+  - port: 80
+    targetPort: 80
+---
+# Horizontal Pod Autoscaler (Optional)
+# Scales from 2 to 5 replicas based on CPU usage
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stress-test-hpa
+  namespace: chaos-test
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stress-test-app
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50  # Scale up when CPU >50% of request
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30   # Wait 30s before scaling up
+      policies:
+      - type: Percent
+        value: 100                     # Scale by 100% (double pods)
+        periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 120  # Wait 2min before scaling down
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+---
+# Experiment 1: CPU Stress Test
+# Stress CPU to test resource limits and throttling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress
+  namespace: chaos-test
+  annotations:
+    description: "Stress CPU to test limits and HPA"
+spec:
+  mode: one  # Stress one pod at a time
+  # Options: one, all, fixed, fixed-percent, random-max-percent
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "stress-test"
+      "chaos-ready": "true"
+
+  # Stressors configuration
+  stressors:
+    cpu:
+      workers: 2       # Number of CPU stress workers
+      load: 100        # 100% load per worker (200% total)
+                       # This will exceed the 200m limit, causing throttling
+
+  duration: "2m"
+
+  # Container name (optional, defaults to first container)
+  containerNames:
+    - app
+---
+# Experiment 2: Memory Stress Test
+# Stress memory to test limits and OOMKiller
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: memory-stress
+  namespace: chaos-test
+  annotations:
+    description: "Stress memory to test limits and OOMKiller"
+spec:
+  mode: one
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "stress-test"
+      "chaos-ready": "true"
+
+  stressors:
+    memory:
+      workers: 1       # Number of memory stress workers
+      size: "100Mi"    # Allocate 100 MiB (within 128Mi limit)
+                       # Set to 150Mi to trigger OOMKiller
+
+  duration: "1m"
+
+  containerNames:
+    - app
+---
+# Experiment 3: Combined CPU + Memory Stress
+# Test resource limits under combined stress
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: combined-stress
+  namespace: chaos-test
+  annotations:
+    description: "Combined CPU and memory stress"
+spec:
+  mode: all  # Stress all matching pods
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "stress-test"
+      "chaos-ready": "true"
+
+  stressors:
+    cpu:
+      workers: 1
+      load: 80        # 80% CPU per worker
+
+    memory:
+      workers: 1
+      size: "80Mi"    # 80 MiB (within limit)
+
+  duration: "90s"
+
+  containerNames:
+    - app
+---
+# Experiment 4: Memory OOMKiller Test
+# Intentionally trigger OOMKiller (WARNING: Pod will be killed)
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: oom-test
+  namespace: chaos-test
+  annotations:
+    description: "Trigger OOMKiller by exceeding memory limit"
+    warning: "This will kill the pod"
+spec:
+  mode: one  # Only kill one pod
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "stress-test"
+      "chaos-ready": "true"
+
+  stressors:
+    memory:
+      workers: 1
+      size: "200Mi"    # Exceed 128Mi limit = OOMKiller
+
+  duration: "30s"
+
+  containerNames:
+    - app
+---
+# Experiment 5: CPU Stress to Trigger HPA
+# Specifically designed to trigger horizontal autoscaling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: hpa-trigger-test
+  namespace: chaos-test
+  annotations:
+    description: "Trigger HPA by exceeding 50% CPU utilization"
+spec:
+  mode: all  # Stress all pods to exceed average
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "stress-test"
+      "chaos-ready": "true"
+
+  stressors:
+    cpu:
+      workers: 1
+      load: 100        # 100% of one core
+                       # With 100m request, this = 100% utilization
+                       # Exceeds 50% HPA target
+
+  duration: "3m"       # Run long enough for HPA to react (30s+ metrics)
+
+  containerNames:
+    - app
+---
+# Instructions for Testing
+#
+# Step 1: Deploy test application
+# kubectl apply -f cpu-stress-experiment.yaml
+# (Only Deployment, Service, HPA - not StressChaos yet)
+#
+# Step 2: Verify deployment
+# kubectl get pods -n chaos-test
+# kubectl get hpa -n chaos-test
+# kubectl top pods -n chaos-test
+# Expected: 2 pods running, HPA shows CURRENT=0 (no load)
+#
+# Step 3: Apply CPU stress
+# kubectl apply -f cpu-stress-experiment.yaml
+# (Only StressChaos resource: cpu-stress)
+#
+# Step 4: Monitor CPU usage in real-time
+# kubectl top pods -n chaos-test --watch
+# Expected: CPU usage increases to ~200m (limit reached)
+#
+# Step 5: Observe throttling (not killing)
+# kubectl get pods -n chaos-test -w
+# Expected: Pod remains Running (not OOMKilled)
+#
+# Step 6: Check container throttling metrics
+# kubectl describe pod <pod-name> -n chaos-test
+# Look for: CPU throttling events in metrics
+#
+# Step 7: Apply memory stress
+# kubectl delete stresschaos cpu-stress -n chaos-test
+# kubectl apply -f cpu-stress-experiment.yaml
+# (Only StressChaos resource: memory-stress)
+#
+# Step 8: Monitor memory usage
+# kubectl top pods -n chaos-test --watch
+# Expected: Memory usage increases to ~100Mi (within limit)
+#
+# Step 9: Test OOMKiller (WARNING: Pod will die)
+# kubectl delete stresschaos memory-stress -n chaos-test
+# kubectl apply -f cpu-stress-experiment.yaml
+# (Only StressChaos resource: oom-test)
+#
+# Step 10: Observe OOMKiller
+# kubectl get pods -n chaos-test -w
+# Expected: Pod status changes to OOMKilled, then restarts
+#
+# Step 11: Check events
+# kubectl describe pod <pod-name> -n chaos-test
+# Expected: Event "OOMKilling container" or exit code 137
+#
+# Step 12: Test HPA scaling
+# kubectl delete stresschaos oom-test -n chaos-test
+# Wait for pods to stabilize (replicas back to 2)
+# kubectl apply -f cpu-stress-experiment.yaml
+# (Only StressChaos resource: hpa-trigger-test)
+#
+# Step 13: Watch HPA scale up
+# kubectl get hpa -n chaos-test -w
+# Expected:
+# - CURRENT: Increases from 0% to >50%
+# - REPLICAS: Increases from 2 → 3 → 4 (over ~60 seconds)
+#
+# Step 14: Verify new pods are created
+# kubectl get pods -n chaos-test
+# Expected: 4 pods total (scaled from 2 to 4)
+#
+# Step 15: Wait for chaos to end
+# After 3 minutes, chaos stops automatically
+# kubectl get hpa -n chaos-test -w
+# Expected: CPU drops, HPA scales back down to 2 (over 2+ minutes)
+#
+# Step 16: Clean up
+# kubectl delete stresschaos --all -n chaos-test
+# kubectl delete deployment stress-test-app -n chaos-test
+# kubectl delete service stress-test-app -n chaos-test
+# kubectl delete hpa stress-test-hpa -n chaos-test
+#
+# Learning Outcomes:
+# ✅ CPU limits prevent resource exhaustion (throttling, not killing)
+# ✅ Memory limits are enforced by OOMKiller when exceeded
+# ✅ HPA scales pods based on CPU utilization
+# ✅ Resource requests vs limits behavior (throttling vs killing)
+# ✅ HPA requires time to observe metrics (~30-60s)
+# ✅ Scale-down is slower than scale-up (stabilization windows)
+#
+# Advanced Testing Ideas:
+# - Test Vertical Pod Autoscaler (VPA) recommendations
+# - Compare burstable vs guaranteed QoS classes
+# - Test pod priority and preemption under node pressure
+# - Validate PodDisruptionBudget during HPA scale-down
+# - Test cluster autoscaler (if node capacity reached)
+# - Monitor kernel memory cgroup throttling events
+#
+# Metrics to Monitor:
+# - container_cpu_usage_seconds_total (actual CPU usage)
+# - container_cpu_cfs_throttled_seconds_total (throttling)
+# - container_memory_working_set_bytes (memory usage)
+# - kube_pod_container_status_restarts_total (OOMKiller restarts)
+# - kube_horizontalpodautoscaler_status_current_replicas (HPA state)

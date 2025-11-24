@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: falco
+data:
+  falco.yaml: |
+    # Falco configuration for Kubernetes runtime security
+
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/k8s_audit_rules.yaml
+      - /etc/falco/rules.d
+
+    # Plugins
+    plugins:
+      - name: k8saudit
+        library_path: libk8saudit.so
+        init_config: ""
+        open_params: "http://:9765/k8s-audit"
+      - name: json
+        library_path: libjson.so
+        init_config: ""
+
+    load_plugins: [k8saudit, json]
+
+    # Output channels
+    json_output: true
+    json_include_output_property: true
+    json_include_tags_property: true
+
+    # Logging
+    log_stderr: true
+    log_syslog: false
+    log_level: info
+
+    # Performance
+    syscall_event_drops:
+      threshold: 0.1
+      actions:
+        - log
+        - alert
+      rate: 0.03333
+      max_burst: 10
+
+    # File output
+    file_output:
+      enabled: false
+
+    # Program output (for Falcosidekick)
+    program_output:
+      enabled: true
+      keep_alive: false
+      program: |
+        jq '{
+          output: .output,
+          priority: .priority,
+          rule: .rule,
+          time: .time,
+          output_fields: .output_fields,
+          hostname: .hostname,
+          tags: .tags
+        }' | curl -X POST -H "Content-Type: application/json" -d @- http://falcosidekick:2801
+
+    # HTTP output
+    http_output:
+      enabled: true
+      url: http://falcosidekick:2801
+      user_agent: falco
+
+    # gRPC
+    grpc:
+      enabled: false
+
+    # Webserver (metrics and health)
+    webserver:
+      enabled: true
+      listen_port: 8765
+      k8s_healthz_endpoint: /healthz
+      ssl_enabled: false
+      threadiness: 8
+
+    # Metrics
+    metrics:
+      enabled: true
+      interval: 1h
+      output_rule: true
+      rules_counters_enabled: true
+      resource_utilization_enabled: true
+      state_counters_enabled: true
+      kernel_event_counters_enabled: true
+      libbpf_stats_enabled: true
+      convert_memory_to_mb: true
+      include_empty_values: false
+
+    # Output formatting
+    output_timeout: 2000
+
+    # Buffering
+    buffered_outputs: false
+
+    # Priority threshold (output only NOTICE and above)
+    priority: notice
+
+    # Rule matching
+    rule_matching: first
+
+    # Watch config file changes
+    watch_config_files: true

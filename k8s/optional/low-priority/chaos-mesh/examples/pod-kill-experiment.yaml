@@ -1,0 +1,211 @@
+# Example: Pod Kill Experiment to Test PodDisruptionBudget
+#
+# Purpose: Validate that PodDisruptionBudgets (PDBs) prevent cascading failures
+# by ensuring minimum availability during pod terminations.
+#
+# Prerequisites:
+# 1. Create test namespace: kubectl create namespace chaos-test
+# 2. Deploy test application (see below)
+# 3. Deploy PodDisruptionBudget (see below)
+#
+# Run this experiment:
+# kubectl apply -f pod-kill-experiment.yaml
+#
+# Observe:
+# kubectl get pods -n chaos-test -w
+# kubectl get pdb -n chaos-test
+#
+# Expected outcome:
+# - Pods are killed one at a time
+# - PDB ensures minAvailable pods always running
+# - Service remains available throughout
+# - ReplicaSet recreates killed pods
+---
+# Test Application: nginx with 3 replicas
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-chaos-test
+  namespace: chaos-test
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        chaos-ready: "true"  # Explicit opt-in for chaos
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        ports:
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 3
+---
+# Service for nginx
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: chaos-test
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+---
+# PodDisruptionBudget: Ensure at least 1 pod remains available
+# This should prevent chaos from killing the last pod
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nginx-pdb
+  namespace: chaos-test
+spec:
+  minAvailable: 1  # At least 1 pod must remain running
+  selector:
+    matchLabels:
+      app: nginx
+---
+# Chaos Experiment: Kill pods to test PDB
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-test
+  namespace: chaos-test
+  annotations:
+    description: "Test PodDisruptionBudget by killing nginx pods"
+spec:
+  # Action: kill the pod (delete and let ReplicaSet recreate)
+  action: pod-kill
+
+  # Mode: one = kill one pod at a time
+  # Options: one, all, fixed, fixed-percent, random-max-percent
+  mode: one
+
+  # Selector: which pods to target
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "nginx"
+      "chaos-ready": "true"  # Only pods explicitly labeled
+
+  # Duration: how long the chaos runs (30 seconds)
+  duration: "30s"
+
+  # Scheduler: run every 2 minutes (for continuous testing)
+  # Comment out for one-time execution
+  # scheduler:
+  #   cron: "@every 2m"
+
+  # Grace period: time to wait before forcefully killing pod
+  # gracePeriod: 0 = immediate kill (tests ungraceful shutdown)
+  # gracePeriod: 30 = 30 second graceful shutdown
+  gracePeriod: 0
+
+---
+# Alternative: Kill all pods (aggressive test)
+# This will test if PDB actually prevents the action
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-all-test
+  namespace: chaos-test
+  annotations:
+    description: "Aggressive test: try to kill all pods (PDB should prevent)"
+spec:
+  action: pod-kill
+  mode: all  # Try to kill ALL matching pods
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "nginx"
+      "chaos-ready": "true"
+
+  duration: "20s"
+
+  # Expected: PDB will prevent killing the last pod
+  # At least minAvailable=1 pod will remain running
+  gracePeriod: 0
+---
+# Instructions for Testing
+#
+# Step 1: Deploy the test application
+# kubectl apply -f pod-kill-experiment.yaml
+#
+# Step 2: Verify deployment
+# kubectl get pods -n chaos-test
+# kubectl get pdb -n chaos-test
+# Expected: 3 nginx pods running, PDB with minAvailable=1
+#
+# Step 3: Run the chaos experiment (one pod at a time)
+# kubectl apply -f pod-kill-experiment.yaml
+# (Only the PodChaos resource with name: pod-kill-test)
+#
+# Step 4: Watch the chaos in action
+# kubectl get pods -n chaos-test -w
+# Expected behavior:
+# - One pod is terminated
+# - ReplicaSet creates new pod
+# - At least 1 pod always remains running (PDB enforced)
+#
+# Step 5: Test service availability during chaos
+# kubectl run curl-test --rm -it --image=curlimages/curl --restart=Never \
+#   --command -- sh -c 'while true; do curl -s -o /dev/null -w "%{http_code}\n" http://nginx.chaos-test; sleep 1; done'
+# Expected: All requests return 200 (service remains available)
+#
+# Step 6: Run aggressive test (try to kill all pods)
+# kubectl delete podchaos pod-kill-test -n chaos-test
+# kubectl apply -f pod-kill-experiment.yaml
+# (Only the PodChaos resource with name: pod-kill-all-test)
+#
+# Step 7: Observe PDB protection
+# kubectl get pods -n chaos-test -w
+# Expected: Multiple pods killed, but at least 1 always remains (PDB)
+#
+# Step 8: Check PDB status
+# kubectl get pdb nginx-pdb -n chaos-test -o yaml
+# Check .status.disruptionsAllowed and .status.currentHealthy
+#
+# Step 9: Clean up
+# kubectl delete podchaos --all -n chaos-test
+# kubectl delete deployment nginx-chaos-test -n chaos-test
+# kubectl delete service nginx -n chaos-test
+# kubectl delete pdb nginx-pdb -n chaos-test
+#
+# Learning Outcomes:
+# ✅ PodDisruptionBudgets prevent cascading failures
+# ✅ Services remain available during pod restarts
+# ✅ ReplicaSets automatically recreate terminated pods
+# ✅ Graceful vs ungraceful shutdown behavior
+# ✅ Chaos Mesh respects Kubernetes primitives (PDBs)

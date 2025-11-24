@@ -1,0 +1,372 @@
+# Example: Network Chaos Experiment to Test Network Resilience
+#
+# Purpose: Inject network faults (latency, packet loss, corruption) to test
+# application resilience to degraded network conditions.
+#
+# Prerequisites:
+# 1. Create test namespace: kubectl create namespace chaos-test
+# 2. Deploy frontend and backend applications (see below)
+#
+# Run this experiment:
+# kubectl apply -f network-chaos-experiment.yaml
+#
+# Observe:
+# kubectl logs -n chaos-test -l app=frontend -f
+# kubectl run curl --rm -it --image=curlimages/curl --restart=Never \
+#   -- time curl http://frontend.chaos-test
+#
+# Expected outcome:
+# - Network latency increases by configured amount
+# - Requests still succeed (no timeouts)
+# - Application handles degraded performance gracefully
+---
+# Backend Application: simple HTTP server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: chaos-test
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        chaos-ready: "true"
+    spec:
+      containers:
+      - name: backend
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=Backend response"
+        - "-listen=:8080"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 32Mi
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: chaos-test
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+# Frontend Application: calls backend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: chaos-test
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        chaos-ready: "true"
+    spec:
+      containers:
+      - name: frontend
+        image: curlimages/curl:latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          while true; do
+            echo "$(date) - Calling backend..."
+            curl -s -w "Status: %{http_code}, Time: %{time_total}s\n" http://backend.chaos-test || echo "ERROR"
+            sleep 5
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: chaos-test
+spec:
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+---
+# Experiment 1: Network Latency (Delay)
+# Add 100ms latency to all traffic to backend pods
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-delay
+  namespace: chaos-test
+  annotations:
+    description: "Add 100ms latency to backend service"
+spec:
+  action: delay  # Add network latency
+
+  mode: all  # Affect all matching pods
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "backend"  # Target backend pods
+
+  delay:
+    latency: "100ms"      # Add 100ms delay
+    correlation: "0"      # No correlation between packets
+    jitter: "10ms"        # Random jitter ±10ms
+
+  # Direction: to = incoming traffic affected
+  # Options: to, from, both
+  direction: to
+
+  duration: "1m"
+
+  # Target specific ports (optional)
+  # externalTargets:
+  #   - "backend.chaos-test:80"
+---
+# Experiment 2: Packet Loss
+# Drop 10% of packets to simulate lossy network
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-loss
+  namespace: chaos-test
+  annotations:
+    description: "Drop 10% of packets to backend"
+spec:
+  action: loss  # Packet loss
+
+  mode: all
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "backend"
+
+  loss:
+    loss: "10"           # 10% packet loss
+    correlation: "25"    # 25% correlation (bursty loss)
+
+  direction: to
+
+  duration: "1m"
+---
+# Experiment 3: Packet Corruption
+# Corrupt packets to test error handling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-corrupt
+  namespace: chaos-test
+  annotations:
+    description: "Corrupt 5% of packets"
+spec:
+  action: corrupt  # Packet corruption
+
+  mode: all
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "backend"
+
+  corrupt:
+    corrupt: "5"         # 5% packet corruption
+    correlation: "0"
+
+  direction: to
+
+  duration: "1m"
+---
+# Experiment 4: Bandwidth Limitation
+# Limit bandwidth to simulate slow network
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-bandwidth
+  namespace: chaos-test
+  annotations:
+    description: "Limit bandwidth to 1Mbps"
+spec:
+  action: bandwidth  # Bandwidth limitation
+
+  mode: all
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "backend"
+
+  bandwidth:
+    rate: "1mbps"        # Limit to 1 Mbps
+    limit: 20480         # Buffer size (bytes)
+    buffer: 10240        # Buffer size for tokens
+
+  direction: to
+
+  duration: "1m"
+---
+# Experiment 5: Network Partition (Split-Brain)
+# Partition frontend from backend to test service discovery
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-partition
+  namespace: chaos-test
+  annotations:
+    description: "Partition frontend from backend"
+spec:
+  action: partition  # Network partition
+
+  mode: all
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "frontend"
+
+  direction: to
+
+  # Target: backend pods (frontend cannot reach backend)
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - chaos-test
+      labelSelectors:
+        "app": "backend"
+
+  duration: "30s"
+---
+# Experiment 6: Duplicate Packets
+# Duplicate packets to test idempotency
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-duplicate
+  namespace: chaos-test
+  annotations:
+    description: "Duplicate 10% of packets"
+spec:
+  action: duplicate  # Packet duplication
+
+  mode: all
+
+  selector:
+    namespaces:
+      - chaos-test
+    labelSelectors:
+      "app": "backend"
+
+  duplicate:
+    duplicate: "10"      # 10% packets duplicated
+    correlation: "0"
+
+  direction: to
+
+  duration: "1m"
+---
+# Instructions for Testing
+#
+# Step 1: Deploy applications
+# kubectl apply -f network-chaos-experiment.yaml
+# (Only Deployments and Services, not NetworkChaos yet)
+#
+# Step 2: Verify applications are running
+# kubectl get pods -n chaos-test
+# kubectl logs -n chaos-test -l app=frontend
+# Expected: Frontend successfully calling backend every 5s
+#
+# Step 3: Test normal latency (baseline)
+# kubectl run curl --rm -it --image=curlimages/curl --restart=Never \
+#   -- time curl http://backend.chaos-test
+# Record baseline latency (should be <10ms)
+#
+# Step 4: Apply network delay chaos
+# kubectl apply -f network-chaos-experiment.yaml
+# (Only NetworkChaos resource: network-delay)
+#
+# Step 5: Observe increased latency
+# kubectl logs -n chaos-test -l app=frontend -f
+# Expected: Response times increase by ~100ms
+#
+# Step 6: Test from outside
+# kubectl run curl --rm -it --image=curlimages/curl --restart=Never \
+#   -- time curl http://backend.chaos-test
+# Expected: ~100ms additional latency
+#
+# Step 7: Apply packet loss chaos
+# kubectl delete networkchaos network-delay -n chaos-test
+# kubectl apply -f network-chaos-experiment.yaml
+# (Only NetworkChaos resource: network-loss)
+#
+# Step 8: Observe packet loss impact
+# kubectl logs -n chaos-test -l app=frontend -f
+# Expected: Some requests timeout or retry, ~10% failure rate
+#
+# Step 9: Test network partition
+# kubectl delete networkchaos network-loss -n chaos-test
+# kubectl apply -f network-chaos-experiment.yaml
+# (Only NetworkChaos resource: network-partition)
+#
+# Step 10: Observe complete failure
+# kubectl logs -n chaos-test -l app=frontend -f
+# Expected: All requests from frontend to backend fail
+#
+# Step 11: Verify recovery after duration
+# Wait for chaos to end (duration expires)
+# kubectl logs -n chaos-test -l app=frontend -f
+# Expected: Requests succeed again automatically
+#
+# Step 12: Clean up
+# kubectl delete networkchaos --all -n chaos-test
+# kubectl delete deployment frontend backend -n chaos-test
+# kubectl delete service frontend backend -n chaos-test
+#
+# Learning Outcomes:
+# ✅ Applications can detect and handle network latency
+# ✅ Retry logic works for packet loss scenarios
+# ✅ Timeouts are configured appropriately
+# ✅ Circuit breakers open during partitions
+# ✅ Systems recover automatically when network heals
+# ✅ Idempotency handles duplicate packets
+#
+# Advanced Testing Ideas:
+# - Test service mesh (Istio/Linkerd) retry policies
+# - Validate gRPC keepalive settings
+# - Test database connection pool timeout handling
+# - Validate distributed tracing shows network issues
+# - Test websocket reconnection logic

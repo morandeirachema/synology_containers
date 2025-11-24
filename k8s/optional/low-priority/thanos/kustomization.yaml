@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: thanos
+  namespace: monitoring
+  annotations:
+    priority: LOW
+    category: long-term-metrics-storage
+    optional: "true"
+    description: "Multi-year metrics retention with object storage (S3/MinIO)"
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - thanos-sidecar.yaml
+  - thanos-query.yaml
+  - thanos-store.yaml
+  - thanos-compactor.yaml
+  - monitoring.yaml
+
+namespace: monitoring
+
+commonLabels:
+  app.kubernetes.io/part-of: thanos
+  optional-component: "true"
+  priority: low
+
+commonAnnotations:
+  documentation: "https://thanos.io/"
+  optional: "true"
+  maintained-by: "CNCF"
+  storage-type: "object-storage"

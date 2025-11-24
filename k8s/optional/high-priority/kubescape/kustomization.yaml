@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: kubescape
+  namespace: kubescape
+  annotations:
+    priority: HIGH
+    category: defense-in-depth-security
+    optional: "true"
+    description: "Compliance scanning against CIS, NSA, CISA, and MITRE frameworks"
+
+resources:
+  - namespace.yaml
+  - kubescape-operator.yaml
+  - scan-schedules.yaml
+  - monitoring.yaml
+
+namespace: kubescape
+
+commonLabels:
+  app.kubernetes.io/part-of: kubescape
+  optional-component: "true"
+  priority: high
+
+commonAnnotations:
+  documentation: "https://kubescape.io/docs/"
+  optional: "true"
+  maintained-by: "ARMO/CNCF"

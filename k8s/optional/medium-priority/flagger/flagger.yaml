@@ -1,0 +1,124 @@
+# Flagger Controller Deployment
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flagger
+  namespace: flagger-system
+  labels:
+    app.kubernetes.io/name: flagger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flagger
+  namespace: flagger-system
+  labels:
+    app.kubernetes.io/name: flagger
+    app.kubernetes.io/version: "1.37.0"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flagger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flagger
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: flagger
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flagger
+          image: ghcr.io/fluxcd/flagger:1.37.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          command:
+            - ./flagger
+            - -log-level=info
+            - -mesh-provider=kubernetes
+            - -metrics-server=http://prometheus-operated.monitoring:9090
+            - -enable-config-tracking=true
+          env:
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flagger
+  namespace: flagger-system
+  labels:
+    app.kubernetes.io/name: flagger
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: flagger
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flagger
+  namespace: flagger-system
+  labels:
+    app.kubernetes.io/name: flagger
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flagger

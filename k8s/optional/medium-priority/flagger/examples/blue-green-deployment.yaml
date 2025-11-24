@@ -1,0 +1,273 @@
+# Example: Blue-Green Deployment
+# This demonstrates zero-downtime instant switchover after validation
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-bluegreen
+  labels:
+    name: demo-bluegreen
+    pod-security.kubernetes.io/enforce: baseline
+---
+# Sample application deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: demo-bluegreen
+  labels:
+    app: webapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
+    spec:
+      containers:
+        - name: webapp
+          image: ghcr.io/stefanprodan/podinfo:6.5.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9898
+              protocol: TCP
+          env:
+            - name: PODINFO_UI_COLOR
+              value: "#0066cc"  # Blue version
+            - name: PODINFO_UI_MESSAGE
+              value: "Blue (Production)"
+          command:
+            - ./podinfo
+            - --port=9898
+            - --level=info
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+# Service for the application
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp
+  namespace: demo-bluegreen
+  labels:
+    app: webapp
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: webapp
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: webapp
+  namespace: demo-bluegreen
+  labels:
+    app: webapp
+spec:
+  selector:
+    matchLabels:
+      app: webapp
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+---
+# Blue-Green deployment configuration
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: webapp
+  namespace: demo-bluegreen
+spec:
+  # Target deployment to manage
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: webapp
+
+  # Service configuration
+  service:
+    port: 80
+    targetPort: 9898
+
+  # Blue-Green analysis configuration
+  analysis:
+    # Analysis interval
+    interval: 1m
+
+    # Number of iterations to run tests
+    iterations: 10
+
+    # Blue-Green mode: NO traffic to green (new) version initially
+    maxWeight: 0
+
+    # Step weight is 0 for blue-green (instant switch)
+    stepWeight: 0
+
+    # Metrics validation (runs against green version with 0% traffic)
+    metrics:
+      # Ensure green version is healthy
+      - name: request-success-rate
+        thresholdRange:
+          min: 99
+        interval: 1m
+
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 1m
+
+    # Webhooks for testing green version
+    webhooks:
+      # Smoke test
+      - name: smoke-test
+        type: pre-rollout
+        url: http://flagger-loadtester.demo-bluegreen/
+        timeout: 1m
+        metadata:
+          type: bash
+          cmd: |
+            curl -s http://webapp-canary.demo-bluegreen/api/info | grep -q version
+            if [ $? -eq 0 ]; then
+              echo "Smoke test passed"
+            else
+              echo "Smoke test failed"
+              exit 1
+            fi
+
+      # Integration tests
+      - name: integration-tests
+        type: pre-rollout
+        url: http://flagger-loadtester.demo-bluegreen/
+        timeout: 5m
+        metadata:
+          type: bash
+          cmd: |
+            echo "Running integration tests..."
+            curl -sd 'test' http://webapp-canary.demo-bluegreen/token | grep token
+            curl -sd '{"test":"data"}' http://webapp-canary.demo-bluegreen/echo | grep data
+            echo "Integration tests passed"
+
+      # Load test (against green version only)
+      - name: load-test
+        type: rollout
+        url: http://flagger-loadtester.demo-bluegreen/
+        timeout: 5m
+        metadata:
+          type: cmd
+          cmd: "hey -z 5m -q 10 -c 2 http://webapp-canary.demo-bluegreen/"
+
+      # Manual approval gate (optional)
+      # Uncomment to require manual approval before switching
+      # - name: manual-approval
+      #   type: confirm-promotion
+      #   url: http://flagger-loadtester.demo-bluegreen/gate/approve
+
+    # Session affinity (optional, for sticky sessions)
+    sessionAffinity:
+      cookieName: flagger-cookie
+      maxAge: 86400  # 24 hours
+
+  # Alerting
+  alerts:
+    - name: "Blue-Green deployment progress"
+      severity: info
+      providerRef:
+        name: slack
+        namespace: flagger-system
+
+    - name: "Blue-Green deployment ready for promotion"
+      severity: warn
+      providerRef:
+        name: slack
+        namespace: flagger-system
+
+    - name: "Blue-Green deployment failed"
+      severity: error
+      providerRef:
+        name: slack
+        namespace: flagger-system
+---
+# Usage Instructions:
+#
+# Blue-Green Deployment Flow:
+# 1. Blue (current production) serves 100% traffic
+# 2. Green (new version) deployed but gets 0% traffic
+# 3. Tests run against green version
+# 4. If tests pass, instant switch to 100% green
+# 5. If tests fail, green is destroyed, blue continues
+#
+# Deploy this example:
+#   kubectl apply -f blue-green-deployment.yaml
+#
+# Check initial state:
+#   kubectl get canary -n demo-bluegreen
+#   # STATUS: Initialized, WEIGHT: 0
+#
+# Trigger blue-green deployment:
+#   kubectl -n demo-bluegreen set image deployment/webapp \
+#     webapp=ghcr.io/stefanprodan/podinfo:6.6.0
+#
+# Watch progression:
+#   kubectl get canary/webapp -n demo-bluegreen -w
+#
+# Expected flow:
+#   STATUS        WEIGHT   LASTTRANSITIONTIME
+#   Initialized   0        <timestamp>
+#   Progressing   0        <timestamp>  # Green deployed, running tests
+#   WaitingPromotion 0     <timestamp>  # Tests passed, ready to switch
+#   Promoting     0        <timestamp>  # Switching traffic to green
+#   Succeeded     0        <timestamp>  # Switch complete, green is now blue
+#
+# Test the deployment:
+#   kubectl port-forward -n demo-bluegreen svc/webapp 8080:80
+#   curl http://localhost:8080
+#   # Should see "Blue (Production)" initially
+#   # After deployment: version changes but UI message updates
+#
+# Manual approval (if enabled):
+#   kubectl annotate canary webapp -n demo-bluegreen \
+#     flagger.app/promote="true"
+#
+# Rollback scenario:
+#   If tests fail, green version is automatically destroyed
+#   Blue continues serving 100% traffic with no user impact
+#
+# Benefits:
+#   - Zero user impact during testing (green gets no real traffic)
+#   - Instant switchover when validated (not gradual)
+#   - Easy rollback (just switch back to blue)
+#   - No split traffic complexity
+#
+# Clean up:
+#   kubectl delete -f blue-green-deployment.yaml

@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: gatekeeper
+  namespace: gatekeeper-system
+  annotations:
+    priority: HIGH
+    category: defense-in-depth-security
+    optional: "true"
+    description: "Policy enforcement engine using Open Policy Agent"
+
+resources:
+  - namespace.yaml
+  - gatekeeper-operator.yaml
+  - constraint-templates.yaml
+  - constraint-library.yaml
+  - monitoring.yaml
+
+namespace: gatekeeper-system
+
+commonLabels:
+  app.kubernetes.io/part-of: gatekeeper
+  optional-component: "true"
+  priority: high
+
+commonAnnotations:
+  documentation: "https://open-policy-agent.github.io/gatekeeper/"
+  optional: "true"
+  maintained-by: "CNCF"
