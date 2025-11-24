@@ -325,7 +325,7 @@ kubectl get pdb -A
 # Verify pod distribution across nodes
 kubectl get pods -A -o wide | awk '{print $1, $2, $8}' | sort -k3
 
-# Should see pods distributed evenly across node1 and node2
+# Should see pods distributed evenly across node1, node2, and node3
 
 # Check anti-affinity rules
 kubectl get deploy traefik -n traefik -o yaml | grep -A10 affinity

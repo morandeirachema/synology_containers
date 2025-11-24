@@ -2,7 +2,7 @@
 
 ## 🏆 Achievement: Perfect Kubernetes Cluster
 
-This guide covers deploying a **100/100 grade Kubernetes cluster** on 2x Beelink Mini S13 nodes (Intel N150) with Talos Linux and Synology NAS integration.
+This guide covers deploying a **100/100 grade Kubernetes cluster** on 3x Beelink Mini S13 nodes (Intel N150, 4 cores each) with Talos Linux and Synology NAS integration.
 
 ---
 
@@ -54,13 +54,14 @@ This guide covers deploying a **100/100 grade Kubernetes cluster** on 2x Beelink
 ### Prerequisites
 
 1. **Hardware**:
-   - 2x Beelink Mini S13 (Intel N150, 16GB RAM, 512GB NVMe)
-   - Synology DS 224+ NAS
+   - 3x Beelink Mini S13 (Intel N150 - 4 cores/4 threads, 16GB RAM, 512GB NVMe)
+   - Synology DS 224+ NAS (192.168.1.5)
+   - Total: 12 CPU cores, 48GB RAM, 1.5TB NVMe
 
 2. **Network**:
-   - Static IPs: 192.168.1.201 (node1), 192.168.1.202 (node2)
-   - VIP: 192.168.1.200 (Kubernetes API)
-   - MetalLB pool: 192.168.1.210-220
+   - Static IPs: 192.168.1.11 (node1), 192.168.1.12 (node2), 192.168.1.13 (node3)
+   - VIP: 192.168.1.10 (MetalLB LoadBalancer)
+   - MetalLB pool: 192.168.1.10-192.168.1.20
 
 3. **Accounts**:
    - GitHub account (for Renovate)

@@ -53,8 +53,8 @@ Additional defense-in-depth layers:
 - Storage: Minimal (ephemeral)
 
 ### Total Production-Plus
-- **CPU**: ~4.5 cores / 8 cores (56% utilization)
-- **Memory**: ~7.2GB / 32GB (22% utilization)
+- **CPU**: ~4.5 cores / 12 cores (37.5% utilization)
+- **Memory**: ~7.2GB / 48GB (15% utilization)
 - **Storage**: ~50GB
 
 **Conclusion**: Well within cluster capacity with room to spare.
@@ -231,7 +231,7 @@ kubectl logs -n falco -l app=falco --tail=10  # Falco alerts
 - OpenCost for resource accountability
 
 ### Resource-Constrained Clusters
-**Scenario**: Small cluster (2 nodes, 8GB RAM)
+**Scenario**: Small cluster (2 nodes, 16GB RAM each = 32GB total)
 
 **Recommendation**: Production baseline + Falco only
 - Falco provides highest value (~50MB)

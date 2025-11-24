@@ -1,6 +1,6 @@
 ---
 # Jaeger All-in-One instance with persistent storage
-# Suitable for small clusters (2 nodes)
+# Suitable for small clusters (3 nodes, 12 cores, 48GB RAM)
 apiVersion: jaegertracing.io/v1
 kind: Jaeger
 metadata:
