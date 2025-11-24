@@ -46,7 +46,7 @@ kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
 
 # 4. Check disk usage on nodes
 echo -e "\n4. Disk Usage:"
-talosctl -n 192.168.1.201,192.168.1.202 df | grep -E "FILESYSTEM|/dev/nvme"
+talosctl -n 192.168.1.11,192.168.1.12 df | grep -E "FILESYSTEM|/dev/nvme"
 
 # 5. Check for pending PVCs
 echo -e "\n5. Pending PVCs:"
@@ -94,7 +94,7 @@ kubectl get vulnerabilityreports -A
 kubectl get configauditreports -A
 
 # 3. Check for failed authentication attempts
-talosctl logs apid -n 192.168.1.201 | grep -i "authentication failed"
+talosctl logs apid -n 192.168.1.11 | grep -i "authentication failed"
 
 # 4. Review Conjur audit logs
 kubectl logs -n conjur -l app=conjur-oss --tail=100 | grep -i audit
@@ -107,7 +107,7 @@ kubectl get networkpolicies -A
 
 ```bash
 # 1. Check for Talos updates
-talosctl version --nodes 192.168.1.201,192.168.1.202
+talosctl version --nodes 192.168.1.11,192.168.1.12
 
 # Visit https://github.com/siderolabs/talos/releases for new versions
 
@@ -133,13 +133,13 @@ velero backup get
 velero backup describe <latest-backup>
 
 # 2. Verify backups on Synology
-ssh admin@192.168.1.100 "ls -lh /volume1/k8s-backups/ | tail -10"
+ssh admin@192.168.1.5 "ls -lh /volume1/k8s-backups/ | tail -10"
 
 # 3. Test restore (optional, monthly)
 # See Backup & Restore section
 
 # 4. Verify etcd health
-talosctl etcd members -n 192.168.1.201
+talosctl etcd members -n 192.168.1.11
 ```
 
 ---
@@ -206,7 +206,7 @@ USED:.status.capacity.storage"
 
 ```bash
 # 1. Remove old container images
-talosctl -n 192.168.1.201,192.168.1.202 service containerd \
+talosctl -n 192.168.1.11,192.168.1.12 service containerd \
   --action=cleanup
 
 # 2. Clean up unused PVs
@@ -238,13 +238,13 @@ Talos upgrades are rolling and zero-downtime.
 
 ```bash
 # 1. Check current version
-talosctl version -n 192.168.1.201,192.168.1.202
+talosctl version -n 192.168.1.11,192.168.1.12
 
 # 2. Review release notes
 # https://github.com/siderolabs/talos/releases/tag/v1.6.5
 
 # 3. Upgrade worker first (test)
-talosctl upgrade -n 192.168.1.202 \
+talosctl upgrade -n 192.168.1.12 \
   --image ghcr.io/siderolabs/installer:v1.6.5 \
   --preserve
 
@@ -252,18 +252,18 @@ talosctl upgrade -n 192.168.1.202 \
 kubectl get nodes -w
 
 # 4. Upgrade control plane
-talosctl upgrade -n 192.168.1.201 \
+talosctl upgrade -n 192.168.1.11 \
   --image ghcr.io/siderolabs/installer:v1.6.5 \
   --preserve
 
 # 5. Verify cluster health
-talosctl health -n 192.168.1.201,192.168.1.202
+talosctl health -n 192.168.1.11,192.168.1.12
 kubectl get nodes
 ```
 
 **Rollback if needed:**
 ```bash
-talosctl upgrade -n 192.168.1.201 \
+talosctl upgrade -n 192.168.1.11 \
   --image ghcr.io/siderolabs/installer:v1.6.4 \
   --preserve
 ```
@@ -277,7 +277,7 @@ Talos handles Kubernetes upgrades automatically.
 kubectl version --short
 
 # 2. Upgrade to new version (e.g., 1.29.0 → 1.29.3)
-talosctl upgrade-k8s -n 192.168.1.201 --to 1.29.3
+talosctl upgrade-k8s -n 192.168.1.11 --to 1.29.3
 
 # This will:
 # - Upgrade control plane components
@@ -349,11 +349,11 @@ gpg -c talos-config-backup-$(date +%Y%m%d).tar.gz
 mv talos-config-backup-$(date +%Y%m%d).tar.gz.gpg /secure/location/
 
 # 4. Backup etcd (Talos does this automatically, but manual option)
-talosctl etcd snapshot -n 192.168.1.201 \
+talosctl etcd snapshot -n 192.168.1.11 \
   > etcd-snapshot-$(date +%Y%m%d).db
 
 scp etcd-snapshot-$(date +%Y%m%d).db \
-  admin@192.168.1.100:/volume1/k8s-backups/etcd/
+  admin@192.168.1.5:/volume1/k8s-backups/etcd/
 ```
 
 ### Restore from Backup
@@ -510,7 +510,7 @@ alertmanager:
 Talos handles certificate rotation automatically. Verify:
 
 ```bash
-talosctl get certificates -n 192.168.1.201
+talosctl get certificates -n 192.168.1.11
 ```
 
 **Kubernetes Certificates:**
@@ -677,13 +677,13 @@ kubectl get pvc -A
 
 # 2. Check NFS connectivity
 kubectl run -it --rm debug --image=busybox --restart=Never -- \
-  ping 192.168.1.100
+  ping 192.168.1.5
 
 # 3. Check NFS provisioner
 kubectl logs -n kube-system -l app=nfs-subdir-external-provisioner
 
 # 4. Test NFS mount manually
-talosctl -n 192.168.1.201 read /proc/mounts | grep nfs
+talosctl -n 192.168.1.11 read /proc/mounts | grep nfs
 ```
 
 ---
@@ -740,7 +740,7 @@ kubectl get svc -n kube-system | grep cilium-ingress
 
 ```bash
 # Talos diagnostics
-talosctl support -n 192.168.1.201,192.168.1.202
+talosctl support -n 192.168.1.11,192.168.1.12
 
 # Kubernetes diagnostics
 kubectl cluster-info dump > cluster-dump.txt

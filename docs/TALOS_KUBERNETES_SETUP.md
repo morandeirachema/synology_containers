@@ -2,14 +2,15 @@
 
 ## Overview
 
-This guide walks you through setting up a production-grade Kubernetes cluster using Talos Linux on 2x Beelink Mini S13 (Intel N150) devices, integrated with your Synology DS 224+ NAS for storage and observability.
+This guide walks you through setting up a production-grade Kubernetes cluster using Talos Linux on 3x Beelink Mini S13 (Intel N150) devices, integrated with your Synology DS 224+ NAS for storage and observability.
 
 **Cluster Specifications:**
-- **Control Plane**: 1x Beelink Mini S13 (also runs workloads)
-- **Worker Node**: 1x Beelink Mini S13
-- **Storage**: Synology DS 224+ via NFS
+- **Control Plane**: 1x Beelink Mini S13 (node1 - hybrid control+worker)
+- **Worker Nodes**: 2x Beelink Mini S13 (node2, node3 - dedicated workers)
+- **Total Resources**: 12 CPU cores (3×4), 48GB RAM (3×16GB)
+- **Storage**: Synology DS 224+ via NFS (192.168.1.5)
 - **OS**: Talos Linux (immutable, API-managed Kubernetes OS)
-- **Target Grade**: A+ Production
+- **Target Grade**: Perfect 100/100 Production
 
 ---
 
@@ -76,7 +77,7 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 │                                                               │
 │  ┌────────────────────┐          ┌────────────────────┐      │
 │  │ Beelink Mini #1    │          │ Beelink Mini #2    │      │
-│  │ 192.168.1.201      │          │ 192.168.1.202      │      │
+│  │ 192.168.1.11      │          │ 192.168.1.12      │      │
 │  ├────────────────────┤          ├────────────────────┤      │
 │  │ Talos Linux        │          │ Talos Linux        │      │
 │  │ ──────────────     │          │ ──────────────     │      │
@@ -92,7 +93,7 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 │                       │                                      │
 │              ┌────────▼────────┐                             │
 │              │  Virtual IP     │                             │
-│              │  192.168.1.200  │                             │
+│              │  192.168.1.10  │                             │
 │              │  (K8s API)      │                             │
 │              └────────┬────────┘                             │
 │                       │                                      │
@@ -127,7 +128,7 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 │                       │ NFS/iSCSI                            │
 │                       ▼                                      │
 │  ┌─────────────────────────────────────────────────┐        │
-│  │  Synology DS 224+ NAS (192.168.1.100)           │        │
+│  │  Synology DS 224+ NAS (192.168.1.5)           │        │
 │  ├─────────────────────────────────────────────────┤        │
 │  │  Storage Services:                              │        │
 │  │  • /volume1/k8s-pv (NFS) - Persistent Volumes   │        │
@@ -223,7 +224,7 @@ helm version
 4. Open **Control Panel** → **File Services** → **NFS**
 5. Enable NFS service
 6. For each folder, click **Edit** → **NFS Permissions**:
-   - **Hostname or IP**: `192.168.1.201` and `192.168.1.202` (both Beelink nodes)
+   - **Hostname or IP**: `192.168.1.11` and `192.168.1.12` (both Beelink nodes)
    - **Privilege**: Read/Write
    - **Squash**: Map all users to admin
    - **Security**: sys (or krb5 if you want Kerberos)
@@ -235,7 +236,7 @@ helm version
 
 From your workstation (or one of the Beelink devices after Talos installation):
 ```bash
-showmount -e 192.168.1.100
+showmount -e 192.168.1.5
 # Should show all exported NFS shares
 ```
 
@@ -245,9 +246,9 @@ Assign static IPs and plan your IP allocations:
 
 | Resource | IP Address | Purpose |
 |----------|------------|---------|
-| Beelink Mini #1 (Control Plane) | `192.168.1.201` | Primary node |
-| Beelink Mini #2 (Worker) | `192.168.1.202` | Worker node |
-| Kubernetes API VIP | `192.168.1.200` | MetalLB LoadBalancer for API |
+| Beelink Mini #1 (Control Plane) | `192.168.1.11` | Primary node |
+| Beelink Mini #2 (Worker) | `192.168.1.12` | Worker node |
+| Kubernetes API VIP | `192.168.1.10` | MetalLB LoadBalancer for API |
 | Ingress VIP | `192.168.1.210` | MetalLB LoadBalancer for Ingress |
 | LoadBalancer Pool | `192.168.1.211-220` | MetalLB IP pool for services |
 
@@ -292,7 +293,7 @@ cd talos
 
 Generate cluster configuration:
 ```bash
-talosctl gen config my-cluster https://192.168.1.200:6443 \
+talosctl gen config my-cluster https://192.168.1.10:6443 \
   --output-dir .
 ```
 
@@ -323,14 +324,14 @@ machine:
       - interface: eth0
         dhcp: false
         addresses:
-          - 192.168.1.201/24
+          - 192.168.1.11/24
         routes:
           - network: 0.0.0.0/0
             gateway: 192.168.1.1
         vip:
-          ip: 192.168.1.200  # Virtual IP for K8s API
+          ip: 192.168.1.10  # Virtual IP for K8s API
     nameservers:
-      - 192.168.1.100  # Pi-hole on Synology
+      - 192.168.1.5  # Pi-hole on Synology
       - 1.1.1.1
 ```
 
@@ -360,12 +361,12 @@ machine:
       - interface: eth0
         dhcp: false
         addresses:
-          - 192.168.1.202/24
+          - 192.168.1.12/24
         routes:
           - network: 0.0.0.0/0
             gateway: 192.168.1.1
     nameservers:
-      - 192.168.1.100
+      - 192.168.1.5
       - 1.1.1.1
 
   kubelet:
@@ -387,7 +388,7 @@ talosctl apply-config --insecure \
 
 **Wait for installation (2-5 minutes)**, then verify:
 ```bash
-talosctl --nodes 192.168.1.201 --talosconfig=./talosconfig dashboard
+talosctl --nodes 192.168.1.11 --talosconfig=./talosconfig dashboard
 ```
 
 **Apply config to worker:**
@@ -400,8 +401,8 @@ talosctl apply-config --insecure \
 **Configure talosctl to use the cluster:**
 ```bash
 export TALOSCONFIG=$(pwd)/talosconfig
-talosctl config endpoint 192.168.1.201
-talosctl config node 192.168.1.201
+talosctl config endpoint 192.168.1.11
+talosctl config node 192.168.1.11
 ```
 
 Add to your shell profile (`~/.bashrc` or `~/.zshrc`):
@@ -417,7 +418,7 @@ export TALOSCONFIG=/path/to/synology_containers/talos/talosconfig
 
 Bootstrap etcd and Kubernetes control plane:
 ```bash
-talosctl bootstrap --nodes 192.168.1.201
+talosctl bootstrap --nodes 192.168.1.11
 ```
 
 Wait 3-5 minutes for bootstrap to complete.
@@ -459,7 +460,7 @@ kubectl get nodes -o wide
 kubectl get pods -n kube-system
 
 # Check Talos health
-talosctl health --nodes 192.168.1.201,192.168.1.202
+talosctl health --nodes 192.168.1.11,192.168.1.12
 ```
 
 ---
@@ -483,7 +484,7 @@ ipam:
   mode: kubernetes
 
 kubeProxyReplacement: strict
-k8sServiceHost: 192.168.1.200  # VIP for K8s API
+k8sServiceHost: 192.168.1.10  # VIP for K8s API
 k8sServicePort: 6443
 
 securityContext:
@@ -677,7 +678,7 @@ helm repo update
 **Create values file** `../k8s/infrastructure/nfs-provisioner/values.yaml`:
 ```yaml
 nfs:
-  server: 192.168.1.100  # Synology NAS IP
+  server: 192.168.1.5  # Synology NAS IP
   path: /volume1/k8s-pv  # NFS share path
 
 storageClass:
@@ -1352,7 +1353,7 @@ configuration:
       config:
         region: minio
         s3ForcePathStyle: "true"
-        s3Url: http://192.168.1.100:9000  # MinIO on Synology
+        s3Url: http://192.168.1.5:9000  # MinIO on Synology
 
   volumeSnapshotLocation:
     - name: default
@@ -1483,10 +1484,10 @@ kubectl rollout restart ds/cilium -n kube-system
 kubectl get pods -n kube-system -l app=nfs-subdir-external-provisioner
 
 # Check NFS mount from node
-talosctl -n 192.168.1.201 dmesg | grep -i nfs
+talosctl -n 192.168.1.11 dmesg | grep -i nfs
 
 # Test NFS connectivity
-showmount -e 192.168.1.100
+showmount -e 192.168.1.5
 ```
 
 ### Certificate Issues
