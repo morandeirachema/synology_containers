@@ -17,10 +17,11 @@
 │  │ Beelink Mini S13 │  │ Beelink Mini S13 │  │ Beelink Mini S13 │       │
 │  │    (Node 1)      │  │    (Node 2)      │  │    (Node 3)      │       │
 │  ├──────────────────┤  ├──────────────────┤  ├──────────────────┤       │
-│  │ CPU: Intel N150  │  │ CPU: Intel N150  │  │ CPU: Intel N150  │       │
+│  │ CPU: 4 cores     │  │ CPU: 4 cores     │  │ CPU: 4 cores     │       │
 │  │ RAM: 16GB        │  │ RAM: 16GB        │  │ RAM: 16GB        │       │
 │  │ Disk: 512GB NVMe │  │ Disk: 512GB NVMe │  │ Disk: 512GB NVMe │       │
 │  │ OS: Talos Linux  │  │ OS: Talos Linux  │  │ OS: Talos Linux  │       │
+│  │ Intel N150       │  │ Intel N150       │  │ Intel N150       │       │
 │  │ Role: Control    │  │ Role: Worker     │  │ Role: Worker     │       │
 │  │      + Worker    │  │                  │  │                  │       │
 │  │ IP: 192.168.1.11 │  │ IP: 192.168.1.12 │  │ IP: 192.168.1.13 │       │
@@ -507,7 +508,7 @@ echo | openssl s_client -connect vaultwarden.yourdomain.com:443 2>/dev/null | \
 
 | Resource | Used | Total | % |
 |----------|------|-------|---|
-| **CPU** | ~4 cores | 6 cores (3 nodes × 2) | 67% |
+| **CPU** | ~4 cores | 12 cores (3 nodes × 4) | 33% |
 | **Memory** | ~6.5GB | 48GB (3 nodes × 16GB) | 14% |
 | **Storage** | ~50GB | 1TB+ | 5% |
 
@@ -515,7 +516,7 @@ echo | openssl s_client -connect vaultwarden.yourdomain.com:443 2>/dev/null | \
 
 | Resource | Used | Total | % |
 |----------|------|-------|---|
-| **CPU** | ~5.5 cores | 6 cores (3 nodes × 2) | 92% |
+| **CPU** | ~5.5 cores | 12 cores (3 nodes × 4) | 46% |
 | **Memory** | ~8.5GB | 48GB (3 nodes × 16GB) | 18% |
 | **Storage** | ~60GB + Thanos | 1TB+ | Variable |
 

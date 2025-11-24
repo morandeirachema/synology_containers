@@ -87,10 +87,11 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Quick Overview
 
 - **Platform**: Kubernetes-first architecture with PERFECT enterprise-grade configuration
-- **Nodes**: 3x Beelink Mini S13 (Intel N150)
+- **Nodes**: 3x Beelink Mini S13 (Intel N150 - 4 cores / 4 threads per node)
   - Node 1: Control plane + worker (hybrid) - 192.168.1.11
   - Node 2: Dedicated worker - 192.168.1.12
   - Node 3: Dedicated worker - 192.168.1.13
+  - **Total**: 12 CPU cores, 48GB RAM
 - **OS**: Talos Linux (immutable, API-managed, secure)
 - **K8s Version**: 1.29+ (upgradable via talosctl)
 - **CNI**: Cilium with eBPF for high-performance networking

@@ -152,7 +152,7 @@ Application-level faults:
 - **Storage**: None (ephemeral)
 
 ### Total Overhead (3-node cluster)
-- **CPU**: ~450m (8% of 6 cores)
+- **CPU**: ~450m (3.8% of 12 cores)
 - **Memory**: ~576Mi (1.2% of 48GB)
 
 **Conclusion**: Minimal impact - acceptable for testing/learning environment.

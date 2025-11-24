@@ -115,7 +115,7 @@ Gatekeeper adds:
 - **Memory**: 256Mi request, 512Mi limit
 
 ### Total Overhead (3-node cluster)
-- **CPU**: ~400m (7% of 6 cores)
+- **CPU**: ~400m (3.3% of 12 cores)
 - **Memory**: ~1GB (2% of 48GB)
 
 **Conclusion**: Moderate overhead - well within your cluster's headroom.

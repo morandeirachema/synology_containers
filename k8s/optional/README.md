@@ -147,12 +147,12 @@ Each component has comprehensive documentation:
 
 ### Current (100/100 Perfect Score) - 3 Nodes
 - **RAM Used**: ~6.5GB / 48GB total (14%)
-- **CPU Used**: ~4 cores / 6 cores total (67%)
+- **CPU Used**: ~4 cores / 12 cores total (33%)
 - **Storage**: ~50GB
 
 ### With ALL Optional Components
 - **Additional RAM**: ~2GB (total ~8.5GB / 48GB = 18%)
-- **Additional CPU**: ~1.5 cores (total ~5.5 cores / 6 cores = 92%)
+- **Additional CPU**: ~1.5 cores (total ~5.5 cores / 12 cores = 46%)
 - **Additional Storage**: ~10GB (Thanos object storage can be Synology)
 
 **Conclusion**: You have headroom for all components if desired.
