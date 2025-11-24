@@ -87,9 +87,10 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Quick Overview
 
 - **Platform**: Kubernetes-first architecture with PERFECT enterprise-grade configuration
-- **Nodes**: 2x Beelink Mini S13 (Intel N150)
-  - Node 1: Control plane + worker (hybrid)
-  - Node 2: Dedicated worker
+- **Nodes**: 3x Beelink Mini S13 (Intel N150)
+  - Node 1: Control plane + worker (hybrid) - 192.168.1.11
+  - Node 2: Dedicated worker - 192.168.1.12
+  - Node 3: Dedicated worker - 192.168.1.13
 - **OS**: Talos Linux (immutable, API-managed, secure)
 - **K8s Version**: 1.29+ (upgradable via talosctl)
 - **CNI**: Cilium with eBPF for high-performance networking
@@ -104,48 +105,48 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                 Your Home Network                         │
-├──────────────────────────────────────────────────────────┤
-│                                                           │
-│  ┌─────────────────┐         ┌─────────────────┐        │
-│  │   Beelink #1    │         │   Beelink #2    │        │
-│  │  (Control +     │         │   (Worker)      │        │
-│  │   Worker)       │         │                 │        │
-│  │  Talos Linux    │         │  Talos Linux    │        │
-│  └────────┬────────┘         └────────┬────────┘        │
-│           │                           │                   │
-│           └──────────┬────────────────┘                   │
-│                      │                                    │
-│           ┌──────────▼──────────┐                        │
-│           │  Kubernetes Cluster  │                        │
-│           │  ─────────────────── │                        │
-│           │  • Traefik          │                        │
-│           │  • Authelia (SSO)   │                        │
-│           │  • Vaultwarden      │                        │
-│           │  • Nextcloud        │                        │
-│           │  • Homepage         │                        │
-│           │  • IT-Tools         │                        │
-│           │  • ArgoCD           │                        │
-│           │  • Prometheus       │                        │
-│           │  • Grafana          │                        │
-│           │  • Loki             │                        │
-│           │  • Conjur           │                        │
-│           └──────────┬──────────┘                        │
-│                      │ NFS Storage + DNS                  │
-│           ┌──────────▼──────────────────┐                │
-│           │    Synology DS 224+         │                │
-│           │  ────────────────────────   │                │
-│           │  Docker: Only Pi-hole       │                │
-│           │  • DNS + Ad Blocking        │                │
-│           │                              │                │
-│           │  Also provides:              │                │
-│           │  • NFS storage for K8s PVs   │                │
-│           │  • Backup target (Velero)    │                │
-│           │  • Logs/metrics storage      │                │
-│           └──────────────────────────────┘                │
-│                                                           │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     Your Home Network                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
+│  │ Beelink #1  │      │ Beelink #2  │      │ Beelink #3  │    │
+│  │ (Control +  │      │  (Worker)   │      │  (Worker)   │    │
+│  │  Worker)    │      │             │      │             │    │
+│  │ Talos Linux │      │ Talos Linux │      │ Talos Linux │    │
+│  └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
+│         │                    │                    │             │
+│         └────────────────────┼────────────────────┘             │
+│                              │                                  │
+│                   ┌──────────▼──────────┐                      │
+│                   │  Kubernetes Cluster  │                      │
+│                   │  ─────────────────── │                      │
+│                   │  • Traefik          │                      │
+│                   │  • Authelia (SSO)   │                      │
+│                   │  • Vaultwarden      │                      │
+│                   │  • Nextcloud        │                      │
+│                   │  • Homepage         │                      │
+│                   │  • IT-Tools         │                      │
+│                   │  • ArgoCD           │                      │
+│                   │  • Prometheus       │                      │
+│                   │  • Grafana          │                      │
+│                   │  • Loki             │                      │
+│                   │  • Conjur           │                      │
+│                   └──────────┬──────────┘                      │
+│                              │ NFS Storage + DNS                │
+│                   ┌──────────▼──────────────────┐              │
+│                   │    Synology DS 224+         │              │
+│                   │  ────────────────────────   │              │
+│                   │  Docker: Only Pi-hole       │              │
+│                   │  • DNS + Ad Blocking        │              │
+│                   │                              │              │
+│                   │  Also provides:              │              │
+│                   │  • NFS storage for K8s PVs   │              │
+│                   │  • Backup target (Velero)    │              │
+│                   │  • Logs/metrics storage      │              │
+│                   └─────────────────────────────┘              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### What's Included

@@ -136,7 +136,7 @@ Each component has comprehensive documentation:
 ✅ **MEDIUM**: CloudNativePG for database security
 ✅ **Consider**: Regular Kubescape scans
 
-### Resource Constrained (2-node, limited RAM)
+### Resource Constrained (Small cluster, limited resources)
 ✅ **HIGH**: Falco only (~50MB, highest value)
 ⚠️ **MEDIUM**: OpenCost only if learning FinOps
 ❌ **LOW**: Skip both (high overhead)
@@ -145,14 +145,14 @@ Each component has comprehensive documentation:
 
 ## ⚖️ Resource Planning
 
-### Current (100/100 Perfect Score)
-- **RAM Used**: ~6.5GB / 32GB total (20%)
-- **CPU Used**: ~4 cores / 8 cores total (50%)
+### Current (100/100 Perfect Score) - 3 Nodes
+- **RAM Used**: ~6.5GB / 48GB total (14%)
+- **CPU Used**: ~4 cores / 6 cores total (67%)
 - **Storage**: ~50GB
 
 ### With ALL Optional Components
-- **Additional RAM**: ~1.5GB (total ~8GB / 32GB = 25%)
-- **Additional CPU**: ~1 core (total ~5 cores / 8 cores = 62%)
+- **Additional RAM**: ~2GB (total ~8.5GB / 48GB = 18%)
+- **Additional CPU**: ~1.5 cores (total ~5.5 cores / 6 cores = 92%)
 - **Additional Storage**: ~10GB (Thanos object storage can be Synology)
 
 **Conclusion**: You have headroom for all components if desired.

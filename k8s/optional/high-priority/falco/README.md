@@ -125,9 +125,9 @@ Falco adds:
 - **CPU**: 50m request per pod, 200m limit
 - **Memory**: 64Mi request per pod, 256Mi limit
 
-### Total Overhead (2-node cluster)
-- **CPU**: ~200m (2.5% of 8 cores)
-- **Memory**: ~250Mi (<1% of 32GB)
+### Total Overhead (3-node cluster)
+- **CPU**: ~400m (7% of 6 cores)
+- **Memory**: ~512Mi (1% of 48GB)
 
 **Conclusion**: Minimal impact - well within your cluster's headroom.
 
