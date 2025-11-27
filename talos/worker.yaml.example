@@ -1,12 +1,17 @@
 # Talos Linux Worker Node Configuration
-# For: Beelink Mini S13 (Intel N150)
+# For: Proxmox VM on Beelink Mini S13 (Intel N150)
 # Role: Worker (dedicated to running application workloads)
-# IP: 192.168.1.202
+# VM: talos-worker-2 (VM ID: 101) or talos-worker-3 (VM ID: 102)
+# IP: 192.168.1.22 (worker-2) or 192.168.1.23 (worker-3)
 #
 # This is a template. Copy to worker.yaml and customize:
 # 1. Replace IP addresses with your network
-# 2. Update domain names
+# 2. Update hostname for each worker
 # 3. Keep secrets secure (don't commit real config to Git)
+#
+# Create separate configs for each worker:
+#   worker-2.yaml: IP 192.168.1.22, hostname talos-worker-2
+#   worker-3.yaml: IP 192.168.1.23, hostname talos-worker-3
 
 version: v1alpha1
 debug: false
@@ -17,8 +22,8 @@ machine:
 
   # Installation configuration
   install:
-    disk: /dev/nvme0n1  # Adjust if your NVMe device is different
-    image: ghcr.io/siderolabs/installer:v1.6.4  # Use latest stable version
+    disk: /dev/vda  # virtio disk in Proxmox VM (not /dev/nvme0n1)
+    image: ghcr.io/siderolabs/installer:v1.9.0  # Use latest stable version
     wipe: false  # Set to true for clean install (WARNING: erases disk!)
     extraKernelArgs:
       - net.ifnames=0  # Use traditional interface names (eth0, eth1)
@@ -37,31 +42,40 @@ machine:
 
   # Network configuration
   network:
-    hostname: talos-worker-1
+    hostname: talos-worker-2  # CHANGE THIS: talos-worker-2 or talos-worker-3
 
     interfaces:
-      - interface: eth0
+      - interface: eth0  # virtio-net adapter in Proxmox
         dhcp: false
         addresses:
-          - 192.168.1.202/24  # CHANGE THIS: Static IP for worker node
+          - 192.168.1.22/24  # CHANGE THIS: .22 for worker-2, .23 for worker-3
         routes:
           - network: 0.0.0.0/0
-            gateway: 192.168.1.1  # CHANGE THIS: Your router IP
+            gateway: 192.168.1.1  # Your router IP
 
     # DNS servers
     nameservers:
-      - 192.168.1.100  # Pi-hole on Synology
-      - 1.1.1.1        # CloudFlare DNS (fallback)
+      - 192.168.1.5  # Pi-hole on Synology
+      - 1.1.1.1     # CloudFlare DNS (fallback)
 
     # Extra hosts (optional)
     extraHostEntries:
-      - ip: 192.168.1.100
+      - ip: 192.168.1.5
         aliases:
           - nas.home.arpa
           - synology.home.arpa
-      - ip: 192.168.1.200
+      - ip: 192.168.1.20
         aliases:
           - k8s-api.home.arpa
+      - ip: 192.168.1.11
+        aliases:
+          - pve1.home.arpa
+      - ip: 192.168.1.12
+        aliases:
+          - pve2.home.arpa
+      - ip: 192.168.1.13
+        aliases:
+          - pve3.home.arpa
 
   # Time synchronization
   time:
@@ -83,14 +97,14 @@ machine:
       - name: ip_vs_wrr
       - name: ip_vs_sh
 
-  # System disk partitions
+  # System disk partitions (virtio disk)
   disks:
-    - device: /dev/nvme0n1
+    - device: /dev/vda
       partitions:
         - mountpoint: /var/lib/kubelet
-          size: 100GB
+          size: 30GB
         - mountpoint: /var/lib/containerd
-          size: 250GB
+          size: 50GB
 
   # Features
   features:
@@ -102,10 +116,10 @@ machine:
       enabled: true
       port: 7445
 
-  # System extensions (optional)
+  # System extensions for Proxmox VMs
   # systemExtensions:
   #   officialExtensions:
-  #     - siderolabs/intel-ucode
+  #     - siderolabs/qemu-guest-agent  # Optional: enables Proxmox VM management features
 
   # System optimization for worker workloads
   sysctls:
@@ -128,7 +142,7 @@ cluster:
 
   # Control plane endpoint
   controlPlane:
-    endpoint: https://192.168.1.200:6443  # VIP of control plane
+    endpoint: https://192.168.1.20:6443  # VIP of control plane
 
   # Cluster network (must match control plane)
   network:
@@ -160,10 +174,17 @@ cluster:
     certLifetime: 87600h0m0s  # 10 years
 
 # Notes:
-# 1. This is a dedicated worker node (no control plane components)
-# 2. Optimized for running application workloads
-# 3. Cluster ID and Secret MUST match the control plane
-# 4. Control plane endpoint points to the VIP (192.168.1.200)
-# 5. After generation with 'talosctl gen config', ensure this matches the cluster
-# 6. Keep this file secure - it contains cluster secrets
-# 7. Never commit the actual worker.yaml with real secrets to Git
+# 1. This node runs as a VM on Proxmox VE (VM ID: 101 or 102)
+# 2. Disk device is /dev/vda (virtio) instead of /dev/nvme0n1 (bare metal)
+# 3. Network interface is eth0 (virtio-net) bridged via vmbr0
+# 4. Cluster ID and Secret MUST match the control plane
+# 5. Control plane endpoint points to the VIP (192.168.1.20)
+# 6. After generation with 'talosctl gen config', ensure this matches the cluster
+# 7. Keep this file secure - it contains cluster secrets
+# 8. Never commit the actual worker.yaml with real secrets to Git
+#
+# IP Scheme:
+#   Proxmox Hosts: 192.168.1.11, .12, .13
+#   Talos VMs: 192.168.1.21 (cp), .22 (worker-2), .23 (worker-3)
+#   K8s API VIP: 192.168.1.20
+#   MetalLB Pool: 192.168.1.210-220

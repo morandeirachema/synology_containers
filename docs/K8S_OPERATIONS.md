@@ -1,6 +1,24 @@
 # Kubernetes Operations Guide (Day-2)
 
-This guide covers daily operations, maintenance, upgrades, and troubleshooting for your Talos Kubernetes cluster.
+This guide covers daily operations, maintenance, upgrades, and troubleshooting for your Talos Kubernetes cluster running as VMs on Proxmox VE.
+
+---
+
+## Cluster Overview
+
+| Component | IP Address | Description |
+|-----------|------------|-------------|
+| **Proxmox Hosts** | | |
+| pve1 | `192.168.1.11` | Beelink #1 hypervisor |
+| pve2 | `192.168.1.12` | Beelink #2 hypervisor |
+| pve3 | `192.168.1.13` | Beelink #3 hypervisor |
+| **Talos VMs** | | |
+| talos-cp-1 (VM 100) | `192.168.1.21` | Control plane + worker |
+| talos-worker-2 (VM 101) | `192.168.1.22` | Dedicated worker |
+| talos-worker-3 (VM 102) | `192.168.1.23` | Dedicated worker |
+| **Services** | | |
+| K8s API VIP | `192.168.1.20` | Kubernetes API endpoint |
+| Synology NAS | `192.168.1.5` | NFS storage, DNS (Pi-hole) |
 
 ---
 
@@ -9,6 +27,7 @@ This guide covers daily operations, maintenance, upgrades, and troubleshooting f
 - [Daily Operations](#daily-operations)
 - [Weekly Maintenance](#weekly-maintenance)
 - [Monthly Tasks](#monthly-tasks)
+- [Proxmox VM Operations](#proxmox-vm-operations)
 - [Upgrades](#upgrades)
 - [Backup & Restore](#backup--restore)
 - [Monitoring & Alerts](#monitoring--alerts)
@@ -44,9 +63,9 @@ kubectl get pods -n logging --field-selector=status.phase!=Running
 echo -e "\n3. Recent Cluster Events:"
 kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
 
-# 4. Check disk usage on nodes
+# 4. Check disk usage on nodes (VMs use /dev/vda)
 echo -e "\n4. Disk Usage:"
-talosctl -n 192.168.1.11,192.168.1.12 df | grep -E "FILESYSTEM|/dev/nvme"
+talosctl -n 192.168.1.21,192.168.1.22,192.168.1.23 df | grep -E "FILESYSTEM|/dev/vda"
 
 # 5. Check for pending PVCs
 echo -e "\n5. Pending PVCs:"
@@ -94,7 +113,7 @@ kubectl get vulnerabilityreports -A
 kubectl get configauditreports -A
 
 # 3. Check for failed authentication attempts
-talosctl logs apid -n 192.168.1.11 | grep -i "authentication failed"
+talosctl logs apid -n 192.168.1.21 | grep -i "authentication failed"
 
 # 4. Review Conjur audit logs
 kubectl logs -n conjur -l app=conjur-oss --tail=100 | grep -i audit
@@ -107,7 +126,7 @@ kubectl get networkpolicies -A
 
 ```bash
 # 1. Check for Talos updates
-talosctl version --nodes 192.168.1.11,192.168.1.12
+talosctl version --nodes 192.168.1.21,192.168.1.22,192.168.1.23
 
 # Visit https://github.com/siderolabs/talos/releases for new versions
 
@@ -139,7 +158,7 @@ ssh admin@192.168.1.5 "ls -lh /volume1/k8s-backups/ | tail -10"
 # See Backup & Restore section
 
 # 4. Verify etcd health
-talosctl etcd members -n 192.168.1.11
+talosctl etcd members -n 192.168.1.21
 ```
 
 ---
@@ -206,7 +225,7 @@ USED:.status.capacity.storage"
 
 ```bash
 # 1. Remove old container images
-talosctl -n 192.168.1.11,192.168.1.12 service containerd \
+talosctl -n 192.168.1.21,192.168.1.22,192.168.1.23 service containerd \
   --action=cleanup
 
 # 2. Clean up unused PVs
@@ -230,42 +249,186 @@ velero backup delete --confirm \
 
 ---
 
+## Proxmox VM Operations
+
+Since Talos runs as VMs on Proxmox VE, you have additional management options.
+
+### VM Status Check
+
+```bash
+# From any Proxmox host
+ssh root@192.168.1.11  # or .12, .13
+
+# List all VMs
+qm list
+
+# Check specific VM status
+qm status 100  # talos-cp-1
+qm status 101  # talos-worker-2
+qm status 102  # talos-worker-3
+
+# Check VM config
+qm config 100
+
+# Check VM resource usage
+qm monitor 100
+```
+
+### VM Snapshots (Before Upgrades)
+
+```bash
+# Create snapshot before major changes
+qm snapshot 100 pre-talos-upgrade --description "Before Talos v1.9.1 upgrade"
+qm snapshot 101 pre-talos-upgrade --description "Before Talos v1.9.1 upgrade"
+qm snapshot 102 pre-talos-upgrade --description "Before Talos v1.9.1 upgrade"
+
+# List snapshots
+qm listsnapshot 100
+
+# Rollback if something goes wrong
+qm rollback 100 pre-talos-upgrade
+
+# Delete old snapshots (after verifying upgrade success)
+qm delsnapshot 100 pre-talos-upgrade
+```
+
+### VM Console Access
+
+```bash
+# Access VM console (if Talos is unresponsive)
+# From Proxmox web UI: Select VM → Console
+
+# Or via CLI (requires noVNC or SPICE)
+qm terminal 100
+```
+
+### VM Restart (Proxmox Level)
+
+```bash
+# Graceful reboot (preferred)
+qm reboot 100
+
+# Hard stop and start (use if graceful fails)
+qm stop 100 && sleep 5 && qm start 100
+
+# Reset (immediate restart, like pressing reset button)
+qm reset 100
+```
+
+### VM Live Migration (Proxmox HA)
+
+```bash
+# Migrate VM to another host (online, no downtime)
+qm migrate 100 pve2 --online
+
+# Check migration status
+qm list | grep 100
+
+# HA will auto-migrate if a host fails
+ha-manager status
+```
+
+### Proxmox Cluster Status
+
+```bash
+# Check cluster health
+pvecm status
+
+# Check HA status
+ha-manager status
+
+# View HA group configuration
+ha-manager groupstatus
+
+# Check quorum
+pvecm expected 3
+```
+
+### VM Backup (Proxmox Level)
+
+```bash
+# Manual backup (in addition to Velero K8s backups)
+vzdump 100 --storage nas-backup --mode snapshot --compress zstd
+vzdump 101 --storage nas-backup --mode snapshot --compress zstd
+vzdump 102 --storage nas-backup --mode snapshot --compress zstd
+
+# Schedule backups via Proxmox UI or cron
+# Datacenter → Backup → Add
+```
+
+### Resource Adjustment
+
+```bash
+# Increase VM memory (requires restart)
+qm set 100 --memory 14336  # 14GB
+
+# Increase CPU cores
+qm set 100 --cores 4
+
+# Hot-add disk (if supported)
+qm set 100 --scsi1 local-lvm:20,format=qcow2
+
+# Apply changes (restart VM)
+qm reboot 100
+```
+
+---
+
 ## Upgrades
 
 ### Upgrading Talos Linux
 
 Talos upgrades are rolling and zero-downtime.
 
+**Pre-Upgrade (Proxmox Snapshots):**
+```bash
+# Create VM snapshots before upgrade (safety net)
+qm snapshot 100 pre-upgrade --description "Before Talos upgrade"
+qm snapshot 101 pre-upgrade --description "Before Talos upgrade"
+qm snapshot 102 pre-upgrade --description "Before Talos upgrade"
+```
+
+**Upgrade Process:**
 ```bash
 # 1. Check current version
-talosctl version -n 192.168.1.11,192.168.1.12
+talosctl version -n 192.168.1.21,192.168.1.22,192.168.1.23
 
 # 2. Review release notes
-# https://github.com/siderolabs/talos/releases/tag/v1.6.5
+# https://github.com/siderolabs/talos/releases/tag/v1.9.1
 
-# 3. Upgrade worker first (test)
-talosctl upgrade -n 192.168.1.12 \
-  --image ghcr.io/siderolabs/installer:v1.6.5 \
+# 3. Upgrade workers first (test)
+talosctl upgrade -n 192.168.1.22 \
+  --image ghcr.io/siderolabs/installer:v1.9.1 \
   --preserve
 
 # Wait and verify
 kubectl get nodes -w
 
-# 4. Upgrade control plane
-talosctl upgrade -n 192.168.1.11 \
-  --image ghcr.io/siderolabs/installer:v1.6.5 \
+talosctl upgrade -n 192.168.1.23 \
+  --image ghcr.io/siderolabs/installer:v1.9.1 \
+  --preserve
+
+# 4. Upgrade control plane last
+talosctl upgrade -n 192.168.1.21 \
+  --image ghcr.io/siderolabs/installer:v1.9.1 \
   --preserve
 
 # 5. Verify cluster health
-talosctl health -n 192.168.1.11,192.168.1.12
+talosctl health -n 192.168.1.21,192.168.1.22,192.168.1.23
 kubectl get nodes
 ```
 
 **Rollback if needed:**
 ```bash
-talosctl upgrade -n 192.168.1.11 \
-  --image ghcr.io/siderolabs/installer:v1.6.4 \
+# Option 1: Talos rollback
+talosctl upgrade -n 192.168.1.21 \
+  --image ghcr.io/siderolabs/installer:v1.9.0 \
   --preserve
+
+# Option 2: Proxmox VM snapshot rollback (faster)
+qm rollback 100 pre-upgrade
+qm rollback 101 pre-upgrade
+qm rollback 102 pre-upgrade
 ```
 
 ### Upgrading Kubernetes
@@ -277,7 +440,7 @@ Talos handles Kubernetes upgrades automatically.
 kubectl version --short
 
 # 2. Upgrade to new version (e.g., 1.29.0 → 1.29.3)
-talosctl upgrade-k8s -n 192.168.1.11 --to 1.29.3
+talosctl upgrade-k8s -n 192.168.1.21 --to 1.29.3
 
 # This will:
 # - Upgrade control plane components
@@ -349,7 +512,7 @@ gpg -c talos-config-backup-$(date +%Y%m%d).tar.gz
 mv talos-config-backup-$(date +%Y%m%d).tar.gz.gpg /secure/location/
 
 # 4. Backup etcd (Talos does this automatically, but manual option)
-talosctl etcd snapshot -n 192.168.1.11 \
+talosctl etcd snapshot -n 192.168.1.21 \
   > etcd-snapshot-$(date +%Y%m%d).db
 
 scp etcd-snapshot-$(date +%Y%m%d).db \
@@ -510,7 +673,7 @@ alertmanager:
 Talos handles certificate rotation automatically. Verify:
 
 ```bash
-talosctl get certificates -n 192.168.1.11
+talosctl get certificates -n 192.168.1.21
 ```
 
 **Kubernetes Certificates:**
@@ -657,7 +820,7 @@ kubectl describe pod <pod-name> -n <namespace>
 kubectl describe node <node-name>
 
 # 2. Check Talos logs
-talosctl logs -n <node-ip>
+talosctl logs -n <node-ip>  # .21, .22, or .23
 
 # 3. Check kubelet
 talosctl logs kubelet -n <node-ip>
@@ -667,6 +830,10 @@ talosctl logs kubelet -n <node-ip>
 # - Network issue → Check Cilium
 # - Kubelet crash → Restart service
 talosctl service kubelet restart -n <node-ip>
+
+# 5. If Talos is unresponsive, use Proxmox console
+# Proxmox UI → Select VM → Console
+# Or: qm terminal 100  (for VM 100)
 ```
 
 ### Storage Issues
@@ -683,7 +850,7 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- \
 kubectl logs -n kube-system -l app=nfs-subdir-external-provisioner
 
 # 4. Test NFS mount manually
-talosctl -n 192.168.1.11 read /proc/mounts | grep nfs
+talosctl -n 192.168.1.21 read /proc/mounts | grep nfs
 ```
 
 ---
@@ -739,14 +906,19 @@ kubectl get svc -n kube-system | grep cilium-ingress
 **Collect Diagnostics:**
 
 ```bash
-# Talos diagnostics
-talosctl support -n 192.168.1.11,192.168.1.12
+# Talos diagnostics (all 3 VMs)
+talosctl support -n 192.168.1.21,192.168.1.22,192.168.1.23
 
 # Kubernetes diagnostics
 kubectl cluster-info dump > cluster-dump.txt
 
 # Cilium diagnostics
 cilium sysdump
+
+# Proxmox diagnostics (from Proxmox host)
+pvecm status
+ha-manager status
+qm list
 ```
 
 **Community Resources:**

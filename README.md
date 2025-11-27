@@ -87,11 +87,17 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Quick Overview
 
 - **Platform**: Kubernetes-first architecture with PERFECT enterprise-grade configuration
-- **Nodes**: 3x Beelink Mini S13 (Intel N150 - 4 cores / 4 threads per node)
-  - Node 1: Control plane + worker (hybrid) - 192.168.1.11
-  - Node 2: Dedicated worker - 192.168.1.12
-  - Node 3: Dedicated worker - 192.168.1.13
-  - **Total**: 12 CPU cores, 48GB RAM
+- **Hypervisor**: Proxmox VE 8.x on each Beelink node (HA cluster)
+- **Physical Hosts**: 3x Beelink Mini S13 (Intel N150 - 4 cores / 4 threads per node)
+  - pve1: 192.168.1.11 (Proxmox host)
+  - pve2: 192.168.1.12 (Proxmox host)
+  - pve3: 192.168.1.13 (Proxmox host)
+- **Talos VMs**: 3x VMs (12GB RAM / 3 vCPU each)
+  - talos-cp-1: 192.168.1.21 (Control plane + worker)
+  - talos-worker-2: 192.168.1.22 (Dedicated worker)
+  - talos-worker-3: 192.168.1.23 (Dedicated worker)
+  - **Total K8s Resources**: 9 vCPU cores, 36GB RAM
+- **K8s API VIP**: 192.168.1.20 (MetalLB managed)
 - **OS**: Talos Linux (immutable, API-managed, secure)
 - **K8s Version**: 1.29+ (upgradable via talosctl)
 - **CNI**: Cilium with eBPF for high-performance networking
@@ -106,48 +112,54 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Your Home Network                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
-│  │ Beelink #1  │      │ Beelink #2  │      │ Beelink #3  │    │
-│  │ (Control +  │      │  (Worker)   │      │  (Worker)   │    │
-│  │  Worker)    │      │             │      │             │    │
-│  │ Talos Linux │      │ Talos Linux │      │ Talos Linux │    │
-│  └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
-│         │                    │                    │             │
-│         └────────────────────┼────────────────────┘             │
-│                              │                                  │
-│                   ┌──────────▼──────────┐                      │
-│                   │  Kubernetes Cluster  │                      │
-│                   │  ─────────────────── │                      │
-│                   │  • Traefik          │                      │
-│                   │  • Authelia (SSO)   │                      │
-│                   │  • Vaultwarden      │                      │
-│                   │  • Nextcloud        │                      │
-│                   │  • Homepage         │                      │
-│                   │  • IT-Tools         │                      │
-│                   │  • ArgoCD           │                      │
-│                   │  • Prometheus       │                      │
-│                   │  • Grafana          │                      │
-│                   │  • Loki             │                      │
-│                   │  • Conjur           │                      │
-│                   └──────────┬──────────┘                      │
-│                              │ NFS Storage + DNS                │
-│                   ┌──────────▼──────────────────┐              │
-│                   │    Synology DS 224+         │              │
-│                   │  ────────────────────────   │              │
-│                   │  Docker: Only Pi-hole       │              │
-│                   │  • DNS + Ad Blocking        │              │
-│                   │                              │              │
-│                   │  Also provides:              │              │
-│                   │  • NFS storage for K8s PVs   │              │
-│                   │  • Backup target (Velero)    │              │
-│                   │  • Logs/metrics storage      │              │
-│                   └─────────────────────────────┘              │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                         Your Home Network                             │
+├───────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌───────────────────────────────────────────────────────────────┐   │
+│  │                 PROXMOX VE 8.x HA CLUSTER                      │   │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐  │   │
+│  │  │  pve1 (.11)     │ │  pve2 (.12)     │ │  pve3 (.13)     │  │   │
+│  │  │  Beelink #1     │ │  Beelink #2     │ │  Beelink #3     │  │   │
+│  │  │  ─────────────  │ │  ─────────────  │ │  ─────────────  │  │   │
+│  │  │  ┌───────────┐  │ │  ┌───────────┐  │ │  ┌───────────┐  │  │   │
+│  │  │  │ VM 100    │  │ │  │ VM 101    │  │ │  │ VM 102    │  │  │   │
+│  │  │  │ talos-cp-1│  │ │  │ talos-    │  │ │  │ talos-    │  │  │   │
+│  │  │  │ (.21)     │  │ │  │ worker-2  │  │ │  │ worker-3  │  │  │   │
+│  │  │  │ CP+Worker │  │ │  │ (.22)     │  │ │  │ (.23)     │  │  │   │
+│  │  │  └───────────┘  │ │  └───────────┘  │ │  └───────────┘  │  │   │
+│  │  └─────────────────┘ └─────────────────┘ └─────────────────┘  │   │
+│  └───────────────────────────────────────────────────────────────┘   │
+│                              │                                        │
+│                   ┌──────────▼──────────┐                            │
+│                   │  Kubernetes Cluster │   K8s API VIP: .20         │
+│                   │  ─────────────────  │                            │
+│                   │  • Traefik          │                            │
+│                   │  • Authelia (SSO)   │                            │
+│                   │  • Vaultwarden      │                            │
+│                   │  • Nextcloud        │                            │
+│                   │  • Homepage         │                            │
+│                   │  • IT-Tools         │                            │
+│                   │  • ArgoCD           │                            │
+│                   │  • Prometheus       │                            │
+│                   │  • Grafana          │                            │
+│                   │  • Loki + Jaeger    │                            │
+│                   │  • Conjur           │                            │
+│                   └──────────┬──────────┘                            │
+│                              │ NFS Storage + DNS                      │
+│                   ┌──────────▼──────────────────┐                    │
+│                   │    Synology DS 224+         │                    │
+│                   │  ────────────────────────   │                    │
+│                   │  Docker: Only Pi-hole       │                    │
+│                   │  • DNS + Ad Blocking        │                    │
+│                   │                             │                    │
+│                   │  Also provides:             │                    │
+│                   │  • NFS storage for K8s PVs  │                    │
+│                   │  • Backup target (Velero)   │                    │
+│                   │  • Logs/metrics storage     │                    │
+│                   └─────────────────────────────┘                    │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ### What's Included
@@ -235,27 +247,32 @@ cd /volume1/docker
 # Create docker-compose.yml with Pi-hole (see deployment guide)
 docker-compose up -d pihole
 
-# 2. Review Talos setup guide
+# 2. Review Proxmox and Talos setup guides
+cat docs/PROXMOX_SETUP.md
 cat docs/TALOS_KUBERNETES_SETUP.md
 
-# 3. Boot Talos on both Beelink nodes from ISO
+# 3. Install Proxmox VE 8.x on all 3 Beelinks (.11, .12, .13)
+# 4. Create Proxmox cluster and configure HA
+# 5. Create Talos VMs (100, 101, 102) - see PROXMOX_SETUP.md
 
-# 4. Generate and apply configurations
+# 6. Boot VMs with Talos ISO and apply configurations
 cd talos
-talosctl gen config my-cluster https://192.168.1.200:6443
-# Customize controlplane.yaml and worker.yaml
-talosctl apply-config --insecure --nodes 192.168.1.201 --file controlplane.yaml
-talosctl apply-config --insecure --nodes 192.168.1.202 --file worker.yaml
+talosctl gen config my-cluster https://192.168.1.20:6443  # VIP
+# Customize controlplane.yaml (VM .21) and worker-2/3.yaml (.22/.23)
+talosctl apply-config --insecure --nodes <dhcp-ip> --file controlplane.yaml
+talosctl apply-config --insecure --nodes <dhcp-ip> --file worker-2.yaml
+talosctl apply-config --insecure --nodes <dhcp-ip> --file worker-3.yaml
 
-# 5. Bootstrap cluster
-talosctl bootstrap --nodes 192.168.1.201
+# 7. Bootstrap cluster (on control plane VM)
+talosctl bootstrap --nodes 192.168.1.21
 
-# 6. Get kubeconfig
+# 8. Get kubeconfig
 talosctl kubeconfig .
 export KUBECONFIG=$(pwd)/kubeconfig
 kubectl get nodes
+# Expected: talos-cp-1 (.21), talos-worker-2 (.22), talos-worker-3 (.23)
 
-# 7. Deploy infrastructure
+# 9. Deploy infrastructure
 kubectl apply -k k8s/bootstrap/cilium/
 kubectl apply -k k8s/bootstrap/metallb/
 kubectl apply -k k8s/bootstrap/cert-manager/
@@ -263,10 +280,10 @@ kubectl apply -k k8s/bootstrap/argocd/
 kubectl apply -k k8s/infrastructure/nfs-provisioner/
 kubectl apply -k k8s/infrastructure/external-secrets/
 
-# 8. Deploy applications (production overlay)
+# 10. Deploy applications (production overlay)
 kubectl apply -k k8s/overlays/production/
 
-# See deployment guide for detailed instructions
+# See docs/PROXMOX_SETUP.md and docs/TALOS_KUBERNETES_SETUP.md for details
 ```
 
 **Full documentation**: [Talos Kubernetes Setup Guide](docs/TALOS_KUBERNETES_SETUP.md)

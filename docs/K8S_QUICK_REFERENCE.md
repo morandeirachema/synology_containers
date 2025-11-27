@@ -4,49 +4,60 @@
 
 ---
 
-## 📐 Architecture Overview
+## Architecture Overview
 
-### Physical Infrastructure
+### Physical Infrastructure (Proxmox + Talos VMs)
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                      Home Network (192.168.1.0/24)                         │
-├───────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐       │
-│  │ Beelink Mini S13 │  │ Beelink Mini S13 │  │ Beelink Mini S13 │       │
-│  │    (Node 1)      │  │    (Node 2)      │  │    (Node 3)      │       │
-│  ├──────────────────┤  ├──────────────────┤  ├──────────────────┤       │
-│  │ CPU: 4 cores     │  │ CPU: 4 cores     │  │ CPU: 4 cores     │       │
-│  │ RAM: 16GB        │  │ RAM: 16GB        │  │ RAM: 16GB        │       │
-│  │ Disk: 512GB NVMe │  │ Disk: 512GB NVMe │  │ Disk: 512GB NVMe │       │
-│  │ OS: Talos Linux  │  │ OS: Talos Linux  │  │ OS: Talos Linux  │       │
-│  │ Intel N150       │  │ Intel N150       │  │ Intel N150       │       │
-│  │ Role: Control    │  │ Role: Worker     │  │ Role: Worker     │       │
-│  │      + Worker    │  │                  │  │                  │       │
-│  │ IP: 192.168.1.11 │  │ IP: 192.168.1.12 │  │ IP: 192.168.1.13 │       │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘       │
-│           │                     │                     │                   │
-│           └─────────────────────┼─────────────────────┘                   │
-│                                 │                                         │
-│                      ┌──────────▼──────────┐                             │
-│                      │  Virtual IP (VIP)   │                             │
-│                      │  192.168.1.10       │                             │
-│                      │  (MetalLB)          │                             │
-│                      └──────────┬──────────┘                             │
-│                                 │                                         │
-│                      ┌──────────▼──────────────────┐                     │
-│                      │   Synology DS 224+          │                     │
-│                      │   192.168.1.5               │                     │
-│                      ├──────────────────────────────┤                     │
-│                      │ • NFS Server (PVs)          │                     │
-│                      │ • Pi-hole (DNS)             │                     │
-│                      │ • Backup Target (Velero)    │                     │
-│                      │ • Logs/Metrics Storage      │                     │
-│                      └─────────────────────────────┘                     │
-│                                                                            │
-└───────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         Home Network (192.168.1.0/24)                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌─────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────┐
+│  │   Beelink S13 #1        │ │   Beelink S13 #2        │ │   Beelink S13 #3        │
+│  │   Proxmox: 192.168.1.11 │ │   Proxmox: 192.168.1.12 │ │   Proxmox: 192.168.1.13 │
+│  ├─────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────┤
+│  │  ┌───────────────────┐  │ │  ┌───────────────────┐  │ │  ┌───────────────────┐  │
+│  │  │ Talos VM (100)    │  │ │  │ Talos VM (101)    │  │ │  │ Talos VM (102)    │  │
+│  │  │ IP: 192.168.1.21  │  │ │  │ IP: 192.168.1.22  │  │ │  │ IP: 192.168.1.23  │  │
+│  │  │ 12GB / 3 vCPU     │  │ │  │ 12GB / 3 vCPU     │  │ │  │ 12GB / 3 vCPU     │  │
+│  │  │ Role: CP + Worker │  │ │  │ Role: Worker      │  │ │  │ Role: Worker      │  │
+│  │  └───────────────────┘  │ │  └───────────────────┘  │ │  └───────────────────┘  │
+│  └───────────┬─────────────┘ └───────────┬─────────────┘ └───────────┬─────────────┘
+│              │                           │                           │              │
+│              └───────────────────────────┼───────────────────────────┘              │
+│                                          │                                          │
+│                             ┌────────────▼────────────┐                             │
+│                             │  Kubernetes API VIP     │                             │
+│                             │  192.168.1.20 (MetalLB) │                             │
+│                             └────────────┬────────────┘                             │
+│                                          │                                          │
+│                             ┌────────────▼────────────┐                             │
+│                             │   Synology DS 224+      │                             │
+│                             │   192.168.1.5           │                             │
+│                             ├─────────────────────────┤                             │
+│                             │ • NFS Server (PVs)      │                             │
+│                             │ • Pi-hole (DNS)         │                             │
+│                             │ • Velero Backups        │                             │
+│                             │ • Proxmox VM Backups    │                             │
+│                             └─────────────────────────┘                             │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### IP Address Reference
+
+| Resource | IP Address | Purpose |
+|----------|------------|---------|
+| Proxmox Host 1 | 192.168.1.11 | pve1 - Hypervisor |
+| Proxmox Host 2 | 192.168.1.12 | pve2 - Hypervisor |
+| Proxmox Host 3 | 192.168.1.13 | pve3 - Hypervisor |
+| Talos VM 1 | 192.168.1.21 | Control plane + worker |
+| Talos VM 2 | 192.168.1.22 | Worker |
+| Talos VM 3 | 192.168.1.23 | Worker |
+| K8s API VIP | 192.168.1.20 | Kubernetes API endpoint |
+| MetalLB Pool | 192.168.1.210-220 | Service LoadBalancers |
+| Synology NAS | 192.168.1.5 | Storage + Pi-hole |
 
 ### Kubernetes Cluster Architecture
 
@@ -59,8 +70,8 @@
 │  │                      INGRESS LAYER                              │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐     │    │
 │  │  │ Traefik      │  │ cert-manager │  │ MetalLB          │     │    │
-│  │  │ (LoadBalancer│  │ (TLS Auto)   │  │ (192.168.1.10)   │     │    │
-│  │  │  + Ingress)  │  │              │  │                  │     │    │
+│  │  │ (LoadBalancer│  │ (TLS Auto)   │  │ (192.168.1.20    │     │    │
+│  │  │  + Ingress)  │  │              │  │  + .210-.220)    │     │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────────┘     │    │
 │  └────────────────────────────────────────────────────────────────┘    │
 │                                 │                                        │
@@ -214,11 +225,11 @@
 ### Initial Cluster Setup
 
 ```bash
-# 1. Bootstrap Talos cluster
-talosctl bootstrap -n 192.168.1.11 -e 192.168.1.11
+# 1. Bootstrap Talos cluster (control plane VM)
+talosctl bootstrap -n 192.168.1.21 -e 192.168.1.21
 
 # 2. Generate kubeconfig
-talosctl kubeconfig -n 192.168.1.11
+talosctl kubeconfig -n 192.168.1.21
 
 # 3. Verify cluster
 kubectl get nodes
@@ -533,8 +544,8 @@ echo | openssl s_client -connect vaultwarden.yourdomain.com:443 2>/dev/null | \
 ### Cluster Not Responding
 
 ```bash
-# 1. Check nodes are up
-talosctl get members -n 192.168.1.11
+# 1. Check nodes are up (use any VM IP)
+talosctl get members -n 192.168.1.21
 
 # 2. Check etcd health
 kubectl get pods -n kube-system -l component=etcd
@@ -542,8 +553,9 @@ kubectl get pods -n kube-system -l component=etcd
 # 3. Check API server
 kubectl get --raw /healthz
 
-# 4. Emergency node reboot
-talosctl reboot -n 192.168.1.11
+# 4. Emergency node reboot (via Talos or Proxmox)
+talosctl reboot -n 192.168.1.21
+# Or: qm reboot 100  (from Proxmox host)
 ```
 
 ### Application Down
@@ -602,14 +614,17 @@ kubectl delete pods --field-selector=status.phase==Failed -A
 # 1. Check current version
 kubectl version
 
-# 2. Upgrade control plane
-talosctl upgrade -n 192.168.1.11 --image ghcr.io/siderolabs/installer:v1.8.0
+# 2. Create VM snapshots first (safety net)
+qm snapshot 100 pre-upgrade
+qm snapshot 101 pre-upgrade
+qm snapshot 102 pre-upgrade
 
-# 3. Wait for control plane ready
-kubectl wait --for=condition=Ready node/node1 --timeout=600s
+# 3. Upgrade workers first
+talosctl upgrade -n 192.168.1.22 --image ghcr.io/siderolabs/installer:v1.9.0
+talosctl upgrade -n 192.168.1.23 --image ghcr.io/siderolabs/installer:v1.9.0
 
-# 4. Upgrade worker
-talosctl upgrade -n 192.168.1.12 --image ghcr.io/siderolabs/installer:v1.8.0
+# 4. Upgrade control plane last
+talosctl upgrade -n 192.168.1.21 --image ghcr.io/siderolabs/installer:v1.9.0
 
 # 5. Verify cluster
 kubectl get nodes

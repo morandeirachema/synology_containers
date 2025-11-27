@@ -2,15 +2,20 @@
 
 ## Overview
 
-This guide walks you through setting up a production-grade Kubernetes cluster using Talos Linux on 3x Beelink Mini S13 (Intel N150) devices, integrated with your Synology DS 224+ NAS for storage and observability.
+This guide walks you through setting up a production-grade Kubernetes cluster using Talos Linux running as virtual machines on Proxmox VE. The cluster runs on 3x Beelink Mini S13 (Intel N150) devices, integrated with your Synology DS 224+ NAS for storage and observability.
 
 **Cluster Specifications:**
-- **Control Plane**: 1x Beelink Mini S13 (node1 - hybrid control+worker)
-- **Worker Nodes**: 2x Beelink Mini S13 (node2, node3 - dedicated workers)
-- **Total Resources**: 12 CPU cores (3×4), 48GB RAM (3×16GB)
+- **Hypervisor**: Proxmox VE 8.x on each Beelink host
+- **Control Plane**: 1x Talos VM (192.168.1.21 - hybrid control+worker)
+- **Worker Nodes**: 2x Talos VMs (192.168.1.22, 192.168.1.23 - dedicated workers)
+- **VM Resources**: 12GB RAM, 3 vCPU, 100GB disk per VM
+- **Total K8s Resources**: 9 vCPU cores, 36GB RAM across 3 VMs
 - **Storage**: Synology DS 224+ via NFS (192.168.1.5)
 - **OS**: Talos Linux (immutable, API-managed Kubernetes OS)
 - **Target Grade**: Perfect 100/100 Production
+
+> **Prerequisites**: Before following this guide, complete the Proxmox setup on all nodes.
+> See [PROXMOX_SETUP.md](./PROXMOX_SETUP.md) for detailed Proxmox installation and VM creation.
 
 ---
 
@@ -36,12 +41,26 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 
 ### Hardware Requirements
 
+#### Physical Hardware (Proxmox Hosts)
+
 | Component | Specification | Notes |
 |-----------|--------------|-------|
-| **Beelink Mini S13 #1** | Intel N150, 16GB RAM, 512GB NVMe | Control Plane + Worker |
-| **Beelink Mini S13 #2** | Intel N150, 16GB RAM, 512GB NVMe | Worker |
+| **Beelink Mini S13 #1** | Intel N150, 16GB RAM, 512GB NVMe | Proxmox host (192.168.1.11) |
+| **Beelink Mini S13 #2** | Intel N150, 16GB RAM, 512GB NVMe | Proxmox host (192.168.1.12) |
+| **Beelink Mini S13 #3** | Intel N150, 16GB RAM, 512GB NVMe | Proxmox host (192.168.1.13) |
 | **Synology DS 224+** | 16GB RAM, Docker stack running | Storage + Observability |
 | **Network Switch** | Gigabit Ethernet | All devices on same LAN |
+
+#### Virtual Machine Specifications (Per Talos VM)
+
+| Resource | Allocation | Notes |
+|----------|------------|-------|
+| **vCPUs** | 3 cores | CPU type: host |
+| **RAM** | 12GB | Fixed allocation, no ballooning |
+| **Disk** | 100GB | virtio-scsi, SSD emulation |
+| **Network** | virtio on vmbr0 | Bridged to physical network |
+| **Machine Type** | q35 | Modern chipset |
+| **BIOS** | OVMF (UEFI) | Or SeaBIOS |
 
 ### Software Requirements
 
@@ -54,10 +73,11 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 
 ### Network Requirements
 
-- **Static IPs** assigned to both Beelink devices
+- **Static IPs** assigned to all Proxmox hosts and Talos VMs
 - **VIP (Virtual IP)** available for Kubernetes API (MetalLB)
 - **DNS** resolution for cluster services (optional but recommended)
 - **Firewall** rules allowing traffic between nodes
+- **Proxmox bridge (vmbr0)** configured on each host
 
 ### Knowledge Requirements
 
@@ -71,80 +91,82 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      Home Network (192.168.1.0/24)           │
-├──────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌────────────────────┐          ┌────────────────────┐      │
-│  │ Beelink Mini #1    │          │ Beelink Mini #2    │      │
-│  │ 192.168.1.11      │          │ 192.168.1.12      │      │
-│  ├────────────────────┤          ├────────────────────┤      │
-│  │ Talos Linux        │          │ Talos Linux        │      │
-│  │ ──────────────     │          │ ──────────────     │      │
-│  │ • Control Plane    │          │ • Worker Node      │      │
-│  │ • etcd             │          │ • Container        │      │
-│  │ • API Server       │          │   Runtime          │      │
-│  │ • Scheduler        │          │ • Kubelet          │      │
-│  │ • Controller Mgr   │          │ • Kube-proxy       │      │
-│  │ • Kubelet (worker) │          │                    │      │
-│  └────────┬───────────┘          └────────┬───────────┘      │
-│           │                               │                  │
-│           └───────────┬───────────────────┘                  │
-│                       │                                      │
-│              ┌────────▼────────┐                             │
-│              │  Virtual IP     │                             │
-│              │  192.168.1.10  │                             │
-│              │  (K8s API)      │                             │
-│              └────────┬────────┘                             │
-│                       │                                      │
-│  ┌────────────────────▼─────────────────────────────┐       │
-│  │           Kubernetes Cluster                      │       │
-│  │  ┌──────────────────────────────────────────┐    │       │
-│  │  │  Network Layer (Cilium CNI)              │    │       │
-│  │  │  • Pod Network: 10.244.0.0/16            │    │       │
-│  │  │  • Service Network: 10.96.0.0/12         │    │       │
-│  │  │  • eBPF-based networking                 │    │       │
-│  │  │  • Built-in Ingress Controller           │    │       │
-│  │  │  • Network Policies                      │    │       │
-│  │  └──────────────────────────────────────────┘    │       │
-│  │                                                   │       │
-│  │  ┌──────────────────────────────────────────┐    │       │
-│  │  │  Core Services                           │    │       │
-│  │  │  • MetalLB (LoadBalancer)                │    │       │
-│  │  │  • cert-manager (Certificates)           │    │       │
-│  │  │  • ArgoCD (GitOps)                       │    │       │
-│  │  │  • External Secrets Operator             │    │       │
-│  │  └──────────────────────────────────────────┘    │       │
-│  │                                                   │       │
-│  │  ┌──────────────────────────────────────────┐    │       │
-│  │  │  Observability Stack                     │    │       │
-│  │  │  • Prometheus (metrics)                  │    │       │
-│  │  │  • Grafana (dashboards)                  │    │       │
-│  │  │  • Loki (logs)                           │    │       │
-│  │  │  • Promtail (log shipping)               │    │       │
-│  │  └──────────────────────────────────────────┘    │       │
-│  └───────────────────────────────────────────────────┘       │
-│                       │                                      │
-│                       │ NFS/iSCSI                            │
-│                       ▼                                      │
-│  ┌─────────────────────────────────────────────────┐        │
-│  │  Synology DS 224+ NAS (192.168.1.5)           │        │
-│  ├─────────────────────────────────────────────────┤        │
-│  │  Storage Services:                              │        │
-│  │  • /volume1/k8s-pv (NFS) - Persistent Volumes   │        │
-│  │  • /volume1/k8s-backups - Velero backups        │        │
-│  │  • /volume1/k8s-registry - Container images     │        │
-│  │                                                  │        │
-│  │  Observability Storage:                         │        │
-│  │  • /volume1/prometheus-data - Long-term metrics │        │
-│  │  • /volume1/loki-data - Log storage             │        │
-│  │                                                  │        │
-│  │  Docker Stack (running in parallel):            │        │
-│  │  • Traefik, Authelia, Vaultwarden, etc.        │        │
-│  └─────────────────────────────────────────────────┘        │
-│                                                               │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           Home Network (192.168.1.0/24)                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌─────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────┐
+│  │   Beelink S13 #1        │ │   Beelink S13 #2        │ │   Beelink S13 #3        │
+│  │   192.168.1.11          │ │   192.168.1.12          │ │   192.168.1.13          │
+│  ├─────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────┤
+│  │     Proxmox VE 8.x      │ │     Proxmox VE 8.x      │ │     Proxmox VE 8.x      │
+│  │  ┌───────────────────┐  │ │  ┌───────────────────┐  │ │  ┌───────────────────┐  │
+│  │  │ Talos VM (100)    │  │ │  │ Talos VM (101)    │  │ │  │ Talos VM (102)    │  │
+│  │  │ 192.168.1.21      │  │ │  │ 192.168.1.22      │  │ │  │ 192.168.1.23      │  │
+│  │  │ 12GB/3vCPU/100GB  │  │ │  │ 12GB/3vCPU/100GB  │  │ │  │ 12GB/3vCPU/100GB  │  │
+│  │  │ ───────────────── │  │ │  │ ───────────────── │  │ │  │ ───────────────── │  │
+│  │  │ • Control Plane   │  │ │  │ • Worker Node     │  │ │  │ • Worker Node     │  │
+│  │  │ • etcd            │  │ │  │ • Kubelet         │  │ │  │ • Kubelet         │  │
+│  │  │ • API Server      │  │ │  │ • Container       │  │ │  │ • Container       │  │
+│  │  │ • Scheduler       │  │ │  │   Runtime         │  │ │  │   Runtime         │  │
+│  │  │ • Controller Mgr  │  │ │  │                   │  │ │  │                   │  │
+│  │  │ • Kubelet (worker)│  │ │  │                   │  │ │  │                   │  │
+│  │  └───────────────────┘  │ │  └───────────────────┘  │ │  └───────────────────┘  │
+│  └───────────┬─────────────┘ └───────────┬─────────────┘ └───────────┬─────────────┘
+│              │                           │                           │              │
+│              └───────────────────────────┼───────────────────────────┘              │
+│                                          │                                          │
+│                             ┌────────────▼────────────┐                             │
+│                             │  Kubernetes API VIP     │                             │
+│                             │  192.168.1.20           │                             │
+│                             │  (MetalLB managed)      │                             │
+│                             └────────────┬────────────┘                             │
+│                                          │                                          │
+│  ┌───────────────────────────────────────▼───────────────────────────────────────┐ │
+│  │                         Kubernetes Cluster                                     │ │
+│  │  ┌─────────────────────────────────────────────────────────────────────────┐  │ │
+│  │  │  Network Layer (Cilium CNI)                                             │  │ │
+│  │  │  • Pod Network: 10.244.0.0/16    • Service Network: 10.96.0.0/12       │  │ │
+│  │  │  • eBPF-based networking         • Built-in Ingress Controller         │  │ │
+│  │  └─────────────────────────────────────────────────────────────────────────┘  │ │
+│  │  ┌─────────────────────────────────────────────────────────────────────────┐  │ │
+│  │  │  Core Services                    │  Observability Stack                │  │ │
+│  │  │  • MetalLB (LoadBalancer)         │  • Prometheus (metrics)             │  │ │
+│  │  │  • cert-manager (Certificates)    │  • Grafana (dashboards)             │  │ │
+│  │  │  • ArgoCD (GitOps)                │  • Loki (logs)                      │  │ │
+│  │  │  • External Secrets Operator      │  • Promtail (log shipping)          │  │ │
+│  │  └─────────────────────────────────────────────────────────────────────────┘  │ │
+│  └───────────────────────────────────────────────────────────────────────────────┘ │
+│                                          │                                          │
+│                                          │ NFS                                      │
+│                                          ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────────────────┐ │
+│  │  Synology DS 224+ NAS (192.168.1.5)                                           │ │
+│  ├───────────────────────────────────────────────────────────────────────────────┤ │
+│  │  Storage Services:                    │  Docker Stack:                        │ │
+│  │  • /volume1/k8s-pv (NFS)             │  • Pi-hole (DNS)                      │ │
+│  │  • /volume1/k8s-backups              │                                        │ │
+│  │  • /volume1/proxmox-backup           │  Proxmox Storage:                      │ │
+│  │  • /volume1/prometheus-data          │  • /volume1/proxmox-iso               │ │
+│  │  • /volume1/loki-data                │  • VM backups via vzdump              │ │
+│  └───────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Network IP Allocation
+
+| Resource | IP Address | Purpose |
+|----------|------------|---------|
+| Proxmox Host 1 | 192.168.1.11 | Hypervisor management |
+| Proxmox Host 2 | 192.168.1.12 | Hypervisor management |
+| Proxmox Host 3 | 192.168.1.13 | Hypervisor management |
+| Talos VM 1 | 192.168.1.21 | K8s control-plane + worker |
+| Talos VM 2 | 192.168.1.22 | K8s worker |
+| Talos VM 3 | 192.168.1.23 | K8s worker |
+| Kubernetes API VIP | 192.168.1.20 | K8s API endpoint |
+| MetalLB Pool | 192.168.1.210-220 | LoadBalancer services |
+| Synology NAS | 192.168.1.5 | Storage + Docker |
 
 ---
 
@@ -224,7 +246,7 @@ helm version
 4. Open **Control Panel** → **File Services** → **NFS**
 5. Enable NFS service
 6. For each folder, click **Edit** → **NFS Permissions**:
-   - **Hostname or IP**: `192.168.1.11` and `192.168.1.12` (both Beelink nodes)
+   - **Hostname or IP**: `192.168.1.21`, `192.168.1.22`, `192.168.1.23` (all Talos VMs)
    - **Privilege**: Read/Write
    - **Squash**: Map all users to admin
    - **Security**: sys (or krb5 if you want Kerberos)
@@ -242,44 +264,62 @@ showmount -e 192.168.1.5
 
 ### 1.3 Network Planning
 
-Assign static IPs and plan your IP allocations:
+IP allocations for Proxmox hosts and Talos VMs:
 
 | Resource | IP Address | Purpose |
 |----------|------------|---------|
-| Beelink Mini #1 (Control Plane) | `192.168.1.11` | Primary node |
-| Beelink Mini #2 (Worker) | `192.168.1.12` | Worker node |
-| Kubernetes API VIP | `192.168.1.10` | MetalLB LoadBalancer for API |
+| **Proxmox Hosts** | | |
+| Proxmox Host 1 (pve1) | `192.168.1.11` | Hypervisor |
+| Proxmox Host 2 (pve2) | `192.168.1.12` | Hypervisor |
+| Proxmox Host 3 (pve3) | `192.168.1.13` | Hypervisor |
+| **Talos VMs** | | |
+| Talos VM 1 (Control Plane) | `192.168.1.21` | K8s control-plane + worker |
+| Talos VM 2 (Worker) | `192.168.1.22` | K8s worker |
+| Talos VM 3 (Worker) | `192.168.1.23` | K8s worker |
+| **Kubernetes** | | |
+| Kubernetes API VIP | `192.168.1.20` | MetalLB LoadBalancer for API |
 | Ingress VIP | `192.168.1.210` | MetalLB LoadBalancer for Ingress |
 | LoadBalancer Pool | `192.168.1.211-220` | MetalLB IP pool for services |
 
-**Configure Static IPs on your router/DHCP server** for the Beelink devices.
+**Note**: Proxmox hosts are configured during Proxmox installation. Talos VM IPs are configured via Talos machine config.
 
 ---
 
 ## Phase 2: Talos Installation
 
-### 2.1 Download Talos ISO
+> **Prerequisites**: Ensure Proxmox is installed on all 3 Beelink nodes and VMs are created.
+> See [PROXMOX_SETUP.md](./PROXMOX_SETUP.md) for detailed instructions.
 
-1. Visit [Talos Releases](https://github.com/siderolabs/talos/releases)
-2. Download the latest stable ISO (e.g., `metal-amd64.iso`)
-3. Create bootable USB drives using:
-   - **macOS/Linux**: `dd if=metal-amd64.iso of=/dev/sdX bs=4M status=progress`
-   - **Windows**: Use [Rufus](https://rufus.ie/) or [Etcher](https://www.balena.io/etcher/)
+### 2.1 Verify Proxmox VMs
 
-### 2.2 Boot Beelink Devices
+Ensure VMs are created on each Proxmox host:
 
-1. Insert USB drive into Beelink Mini #1
-2. Power on and press `F7` or `Del` to enter boot menu
-3. Select USB drive
-4. Talos will boot into maintenance mode (no installation yet)
-5. Note the IP address displayed (should be from DHCP)
-6. Repeat for Beelink Mini #2
+| VM ID | Name | Host | Resources |
+|-------|------|------|-----------|
+| 100 | talos-cp-1 | pve1 | 12GB RAM, 3 vCPU, 100GB disk |
+| 101 | talos-worker-2 | pve2 | 12GB RAM, 3 vCPU, 100GB disk |
+| 102 | talos-worker-3 | pve3 | 12GB RAM, 3 vCPU, 100GB disk |
+
+### 2.2 Boot Talos VMs
+
+1. Start each VM from Proxmox web UI or CLI:
+   ```bash
+   # On each Proxmox host
+   qm start 100  # On pve1
+   qm start 101  # On pve2
+   qm start 102  # On pve3
+   ```
+
+2. Open VM console via Proxmox web UI
+3. Talos will boot from ISO into maintenance mode
+4. Note the DHCP IP address displayed for each VM
 
 **Verify connectivity:**
 ```bash
 # From your workstation
-ping <beelink-1-ip>
-ping <beelink-2-ip>
+ping <talos-vm-1-dhcp-ip>
+ping <talos-vm-2-dhcp-ip>
+ping <talos-vm-3-dhcp-ip>
 ```
 
 ### 2.3 Generate Talos Configuration
@@ -291,9 +331,9 @@ mkdir -p talos
 cd talos
 ```
 
-Generate cluster configuration:
+Generate cluster configuration (using new VM IP for API endpoint):
 ```bash
-talosctl gen config my-cluster https://192.168.1.10:6443 \
+talosctl gen config my-cluster https://192.168.1.20:6443 \
   --output-dir .
 ```
 
@@ -310,8 +350,8 @@ Add disk installation config (top of file, after `version`):
 ```yaml
 machine:
   install:
-    disk: /dev/nvme0n1  # Adjust based on your NVMe device
-    image: ghcr.io/siderolabs/installer:v1.6.0  # Use latest version
+    disk: /dev/vda  # virtio disk in Proxmox VM
+    image: ghcr.io/siderolabs/installer:v1.9.0  # Use latest version
     wipe: false  # Set to true for clean install
 ```
 
@@ -321,15 +361,15 @@ machine:
   network:
     hostname: talos-cp-1
     interfaces:
-      - interface: eth0
+      - interface: eth0  # virtio-net adapter in Proxmox
         dhcp: false
         addresses:
-          - 192.168.1.11/24
+          - 192.168.1.21/24  # VM IP (not host IP)
         routes:
           - network: 0.0.0.0/0
             gateway: 192.168.1.1
         vip:
-          ip: 192.168.1.10  # Virtual IP for K8s API
+          ip: 192.168.1.20  # Virtual IP for K8s API
     nameservers:
       - 192.168.1.5  # Pi-hole on Synology
       - 1.1.1.1
@@ -346,22 +386,52 @@ machine:
         - 192.168.1.0/24
 ```
 
-#### Edit `worker.yaml`:
+#### Edit `worker.yaml` (for talos-worker-2):
 
-Similar changes for worker node:
 ```yaml
 machine:
   install:
-    disk: /dev/nvme0n1
-    image: ghcr.io/siderolabs/installer:v1.6.0
+    disk: /dev/vda  # virtio disk in Proxmox VM
+    image: ghcr.io/siderolabs/installer:v1.9.0
 
   network:
-    hostname: talos-worker-1
+    hostname: talos-worker-2
+    interfaces:
+      - interface: eth0  # virtio-net adapter
+        dhcp: false
+        addresses:
+          - 192.168.1.22/24  # VM IP
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.1.1
+    nameservers:
+      - 192.168.1.5
+      - 1.1.1.1
+
+  kubelet:
+    extraArgs:
+      rotate-server-certificates: "true"
+    nodeIP:
+      validSubnets:
+        - 192.168.1.0/24
+```
+
+#### Create `worker-3.yaml` (for talos-worker-3):
+
+Copy `worker.yaml` and modify:
+```yaml
+machine:
+  install:
+    disk: /dev/vda
+    image: ghcr.io/siderolabs/installer:v1.9.0
+
+  network:
+    hostname: talos-worker-3
     interfaces:
       - interface: eth0
         dhcp: false
         addresses:
-          - 192.168.1.12/24
+          - 192.168.1.23/24  # Third worker VM IP
         routes:
           - network: 0.0.0.0/0
             gateway: 192.168.1.1
@@ -379,36 +449,67 @@ machine:
 
 ### 2.5 Apply Configurations and Install
 
-**Apply config to control plane:**
+**Apply config to control plane VM:**
 ```bash
 talosctl apply-config --insecure \
-  --nodes <beelink-1-dhcp-ip> \
+  --nodes <talos-vm-1-dhcp-ip> \
   --file controlplane.yaml
 ```
 
 **Wait for installation (2-5 minutes)**, then verify:
 ```bash
-talosctl --nodes 192.168.1.11 --talosconfig=./talosconfig dashboard
+talosctl --nodes 192.168.1.21 --talosconfig=./talosconfig dashboard
 ```
 
-**Apply config to worker:**
+**Apply config to worker VMs:**
 ```bash
+# Worker 2
 talosctl apply-config --insecure \
-  --nodes <beelink-2-dhcp-ip> \
+  --nodes <talos-vm-2-dhcp-ip> \
   --file worker.yaml
+
+# Worker 3
+talosctl apply-config --insecure \
+  --nodes <talos-vm-3-dhcp-ip> \
+  --file worker-3.yaml
 ```
 
 **Configure talosctl to use the cluster:**
 ```bash
 export TALOSCONFIG=$(pwd)/talosconfig
-talosctl config endpoint 192.168.1.11
-talosctl config node 192.168.1.11
+talosctl config endpoint 192.168.1.21
+talosctl config node 192.168.1.21
 ```
 
 Add to your shell profile (`~/.bashrc` or `~/.zshrc`):
 ```bash
 export TALOSCONFIG=/path/to/synology_containers/talos/talosconfig
 ```
+
+### 2.6 Post-Installation VM Configuration
+
+After Talos is installed on all VMs:
+
+1. **Remove ISO from VMs** (via Proxmox):
+   ```bash
+   # On each Proxmox host
+   qm set 100 --ide2 none  # Remove CD/DVD
+   qm set 100 --boot order=scsi0  # Boot from disk
+   ```
+
+2. **Add VMs to Proxmox HA** (optional but recommended):
+   ```bash
+   ha-manager add vm:100 --group talos-vms --state started
+   ha-manager add vm:101 --group talos-vms --state started
+   ha-manager add vm:102 --group talos-vms --state started
+   ```
+
+3. **Create initial VM snapshots**:
+   ```bash
+   qm snapshot 100 fresh-install --description "Fresh Talos install"
+   qm snapshot 101 fresh-install --description "Fresh Talos install"
+   qm snapshot 102 fresh-install --description "Fresh Talos install"
+   ```
 
 ---
 
@@ -418,7 +519,7 @@ export TALOSCONFIG=/path/to/synology_containers/talos/talosconfig
 
 Bootstrap etcd and Kubernetes control plane:
 ```bash
-talosctl bootstrap --nodes 192.168.1.11
+talosctl bootstrap --nodes 192.168.1.21
 ```
 
 Wait 3-5 minutes for bootstrap to complete.
@@ -440,7 +541,8 @@ Expected output:
 ```
 NAME            STATUS     ROLES           AGE   VERSION
 talos-cp-1      Ready      control-plane   5m    v1.29.0
-talos-worker-1  Ready      <none>          3m    v1.29.0
+talos-worker-2  Ready      <none>          3m    v1.29.0
+talos-worker-3  Ready      <none>          3m    v1.29.0
 ```
 
 **Note**: Nodes may show `NotReady` initially until CNI is installed (next phase).
@@ -459,8 +561,8 @@ kubectl get nodes -o wide
 # Check system pods
 kubectl get pods -n kube-system
 
-# Check Talos health
-talosctl health --nodes 192.168.1.11,192.168.1.12
+# Check Talos health (all 3 VMs)
+talosctl health --nodes 192.168.1.21,192.168.1.22,192.168.1.23
 ```
 
 ---
@@ -484,7 +586,7 @@ ipam:
   mode: kubernetes
 
 kubeProxyReplacement: strict
-k8sServiceHost: 192.168.1.10  # VIP for K8s API
+k8sServiceHost: 192.168.1.20  # VIP for K8s API
 k8sServicePort: 6443
 
 securityContext:
@@ -1483,8 +1585,8 @@ kubectl rollout restart ds/cilium -n kube-system
 # Check NFS provisioner
 kubectl get pods -n kube-system -l app=nfs-subdir-external-provisioner
 
-# Check NFS mount from node
-talosctl -n 192.168.1.11 dmesg | grep -i nfs
+# Check NFS mount from Talos VM
+talosctl -n 192.168.1.21 dmesg | grep -i nfs
 
 # Test NFS connectivity
 showmount -e 192.168.1.5
@@ -1516,6 +1618,7 @@ kubectl describe certificate <cert-name> -n <namespace>
 
 ## Additional Resources
 
+- **Proxmox Documentation**: https://pve.proxmox.com/pve-docs/
 - **Talos Documentation**: https://www.talos.dev/
 - **Kubernetes Documentation**: https://kubernetes.io/docs/
 - **Cilium Documentation**: https://docs.cilium.io/
@@ -1524,6 +1627,6 @@ kubectl describe certificate <cert-name> -n <namespace>
 
 ---
 
-**Made with ❤️ for the self-hosting community**
+**Last Updated**: 2025-11-27
 
-[Back to Main README](../README.md) | [K8s Architecture](K8S_ARCHITECTURE.md) | [Operations Guide](K8S_OPERATIONS.md)
+[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [K8s Architecture](K8S_ARCHITECTURE.md) | [Operations Guide](K8S_OPERATIONS.md)

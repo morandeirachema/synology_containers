@@ -1,12 +1,16 @@
 # Talos Linux Control Plane Configuration
-# For: Beelink Mini S13 (Intel N150)
+# For: Proxmox VM on Beelink Mini S13 (Intel N150)
 # Role: Control Plane + Worker (hybrid node)
-# IP: 192.168.1.201
+# VM: talos-cp-1 (VM ID: 100)
+# IP: 192.168.1.21
 #
 # This is a template. Copy to controlplane.yaml and customize:
 # 1. Replace IP addresses with your network
 # 2. Update domain names
 # 3. Keep secrets secure (don't commit real config to Git)
+#
+# Host IP (Proxmox): 192.168.1.11
+# VM IP (Talos): 192.168.1.21
 
 version: v1alpha1
 debug: false
@@ -17,8 +21,8 @@ machine:
 
   # Installation configuration
   install:
-    disk: /dev/nvme0n1  # Adjust if your NVMe device is different
-    image: ghcr.io/siderolabs/installer:v1.6.4  # Use latest stable version
+    disk: /dev/vda  # virtio disk in Proxmox VM (not /dev/nvme0n1)
+    image: ghcr.io/siderolabs/installer:v1.9.0  # Use latest stable version
     wipe: false  # Set to true for clean install (WARNING: erases disk!)
     extraKernelArgs:
       - net.ifnames=0  # Use traditional interface names (eth0, eth1)
@@ -40,27 +44,36 @@ machine:
     hostname: talos-cp-1
 
     interfaces:
-      - interface: eth0
+      - interface: eth0  # virtio-net adapter in Proxmox
         dhcp: false
         addresses:
-          - 192.168.1.201/24  # CHANGE THIS: Static IP for control plane
+          - 192.168.1.21/24  # VM IP (separate from Proxmox host IP .11)
         routes:
           - network: 0.0.0.0/0
-            gateway: 192.168.1.1  # CHANGE THIS: Your router IP
+            gateway: 192.168.1.1  # Your router IP
         vip:
-          ip: 192.168.1.200  # Virtual IP for Kubernetes API (MetalLB will use this)
+          ip: 192.168.1.20  # Virtual IP for Kubernetes API
 
     # DNS servers
     nameservers:
-      - 192.168.1.100  # Pi-hole on Synology
-      - 1.1.1.1        # CloudFlare DNS (fallback)
+      - 192.168.1.5  # Pi-hole on Synology
+      - 1.1.1.1     # CloudFlare DNS (fallback)
 
     # Extra hosts (optional)
     extraHostEntries:
-      - ip: 192.168.1.100
+      - ip: 192.168.1.5
         aliases:
           - nas.home.arpa
           - synology.home.arpa
+      - ip: 192.168.1.11
+        aliases:
+          - pve1.home.arpa
+      - ip: 192.168.1.12
+        aliases:
+          - pve2.home.arpa
+      - ip: 192.168.1.13
+        aliases:
+          - pve3.home.arpa
 
   # Time synchronization
   time:
@@ -71,8 +84,8 @@ machine:
 
   # Certificate SANs (Subject Alternative Names)
   certSANs:
-    - 192.168.1.200  # VIP
-    - 192.168.1.201  # This node's IP
+    - 192.168.1.20  # VIP
+    - 192.168.1.21  # This VM's IP
     - 127.0.0.1
     - localhost
 
@@ -86,14 +99,14 @@ machine:
       - name: ip_vs_wrr
       - name: ip_vs_sh
 
-  # System disk partitions
+  # System disk partitions (virtio disk)
   disks:
-    - device: /dev/nvme0n1
+    - device: /dev/vda
       partitions:
         - mountpoint: /var/lib/kubelet
-          size: 100GB
+          size: 30GB
         - mountpoint: /var/lib/containerd
-          size: 200GB
+          size: 50GB
 
   # Features
   features:
@@ -105,11 +118,10 @@ machine:
       enabled: true
       port: 7445
 
-  # System extensions (optional)
+  # System extensions for Proxmox VMs
   # systemExtensions:
   #   officialExtensions:
-  #     - siderolabs/intel-ucode
-  #     - siderolabs/qemu-guest-agent
+  #     - siderolabs/qemu-guest-agent  # Optional: enables Proxmox VM management features
 
   # Resource reservations (for control plane)
   sysctls:
@@ -128,7 +140,7 @@ cluster:
 
   # Control plane endpoint
   controlPlane:
-    endpoint: https://192.168.1.200:6443  # VIP for HA
+    endpoint: https://192.168.1.20:6443  # VIP for HA
 
   # Cluster network configuration
   network:
@@ -150,8 +162,10 @@ cluster:
   apiServer:
     image: registry.k8s.io/kube-apiserver:v1.29.2  # Match Kubernetes version
     certSANs:
-      - 192.168.1.200
-      - 192.168.1.201
+      - 192.168.1.20  # VIP
+      - 192.168.1.21  # Control plane VM
+      - 192.168.1.22  # Worker 2 VM
+      - 192.168.1.23  # Worker 3 VM
     extraArgs:
       feature-gates: GracefulNodeShutdown=true
       oidc-issuer-url: ""  # Configure if using OIDC
@@ -228,7 +242,7 @@ cluster:
     disabled: false
     image: registry.k8s.io/coredns/coredns:v1.11.1
 
-  # External cloud provider (disabled for bare-metal)
+  # External cloud provider (disabled for Proxmox VMs)
   externalCloudProvider:
     enabled: false
 
@@ -250,8 +264,16 @@ cluster:
             pod-security.kubernetes.io/warn: restricted
 
 # Notes:
-# 1. This node serves as both control plane AND worker (hybrid mode)
-# 2. The VIP (192.168.1.200) is managed by MetalLB after installation
-# 3. Keep this file secure - it contains cluster secrets
-# 4. After generation with 'talosctl gen config', customize IPs and hostnames
-# 5. Never commit the actual controlplane.yaml with real secrets to Git
+# 1. This node runs as a VM on Proxmox VE (VM ID: 100)
+# 2. Disk device is /dev/vda (virtio) instead of /dev/nvme0n1 (bare metal)
+# 3. Network interface is eth0 (virtio-net) bridged via vmbr0
+# 4. The VIP (192.168.1.20) is managed by MetalLB after installation
+# 5. Keep this file secure - it contains cluster secrets
+# 6. After generation with 'talosctl gen config', customize IPs and hostnames
+# 7. Never commit the actual controlplane.yaml with real secrets to Git
+#
+# IP Scheme:
+#   Proxmox Hosts: 192.168.1.11, .12, .13
+#   Talos VMs: 192.168.1.21, .22, .23
+#   K8s API VIP: 192.168.1.20
+#   MetalLB Pool: 192.168.1.210-220

@@ -54,14 +54,16 @@ This guide covers deploying a **100/100 grade Kubernetes cluster** on 3x Beelink
 ### Prerequisites
 
 1. **Hardware**:
-   - 3x Beelink Mini S13 (Intel N150 - 4 cores/4 threads, 16GB RAM, 512GB NVMe)
+   - 3x Beelink Mini S13 running Proxmox VE (hosts: .11, .12, .13)
+   - 3x Talos VMs (12GB RAM / 3 vCPU each): .21, .22, .23
    - Synology DS 224+ NAS (192.168.1.5)
-   - Total: 12 CPU cores, 48GB RAM, 1.5TB NVMe
+   - Total K8s Resources: 9 vCPU cores, 36GB RAM
 
 2. **Network**:
-   - Static IPs: 192.168.1.11 (node1), 192.168.1.12 (node2), 192.168.1.13 (node3)
-   - VIP: 192.168.1.10 (MetalLB LoadBalancer)
-   - MetalLB pool: 192.168.1.10-192.168.1.20
+   - Proxmox Hosts: 192.168.1.11, .12, .13
+   - Talos VMs: 192.168.1.21 (CP), .22 (worker), .23 (worker)
+   - K8s API VIP: 192.168.1.20
+   - MetalLB pool: 192.168.1.210-220
 
 3. **Accounts**:
    - GitHub account (for Renovate)
@@ -80,18 +82,19 @@ curl -LO https://github.com/siderolabs/talos/releases/download/v1.6.6/talos-amd6
 ### Step 2: Bootstrap Kubernetes
 
 ```bash
-# Generate Talos configs
-talosctl gen config talos-cluster https://192.168.1.200:6443
+# Generate Talos configs (using K8s API VIP)
+talosctl gen config talos-cluster https://192.168.1.20:6443
 
-# Apply configs to nodes
-talosctl apply-config --insecure --nodes 192.168.1.201 --file controlplane.yaml
-talosctl apply-config --insecure --nodes 192.168.1.202 --file worker.yaml
+# Apply configs to VMs (use DHCP IPs during initial install)
+talosctl apply-config --insecure --nodes <dhcp-ip> --file controlplane.yaml
+talosctl apply-config --insecure --nodes <dhcp-ip> --file worker-2.yaml
+talosctl apply-config --insecure --nodes <dhcp-ip> --file worker-3.yaml
 
-# Bootstrap cluster
-talosctl bootstrap --nodes 192.168.1.201 --endpoints 192.168.1.201
+# Bootstrap cluster (on control plane VM)
+talosctl bootstrap --nodes 192.168.1.21 --endpoints 192.168.1.21
 
-# Get kubeconfig
-talosctl kubeconfig --nodes 192.168.1.200
+# Get kubeconfig (via VIP)
+talosctl kubeconfig --nodes 192.168.1.20
 ```
 
 ### Step 3: Deploy Infrastructure Components

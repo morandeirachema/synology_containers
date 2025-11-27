@@ -61,55 +61,82 @@ This document explains the architectural decisions and design principles behind 
 ### Node Configuration
 
 ```
-┌──────────────────────────────────────────────┐
-│  Cluster: my-cluster                          │
-│  Kubernetes Version: 1.29.x                   │
-├──────────────────────────────────────────────┤
-│                                               │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │  Node: node1    │  │  Node: node2    │  │  Node: node3    │ │
-│  │  192.168.1.11   │  │  192.168.1.12   │  │  192.168.1.13   │ │
-│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤ │
-│  │ Roles:          │  │ Roles:          │  │ Roles:          │ │
-│  │ • control-plane │  │ • worker        │  │ • worker        │ │
-│  │ • worker        │  │                 │  │                 │ │
-│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤ │
-│  │ Control Plane:  │  │ Workloads:      │  │ Workloads:      │ │
-│  │ • etcd          │  │ • Application   │  │ • Application   │ │
-│  │ • API Server    │  │   Pods          │  │   Pods          │ │
-│  │ • Scheduler     │  │ • System Pods   │  │ • System Pods   │ │
-│  │ • Ctrl Manager  │  │                 │  │                 │ │
-│  │                 │  │                 │  │                 │ │
-│  │ Worker:         │  │                 │  │                 │ │
-│  │ • Kubelet       │  │                 │  │                 │ │
-│  │ • Application   │  │                 │  │                 │ │
-│  │   Pods          │  │                 │  │                 │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-│                                               │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│  Cluster: my-cluster                                                                 │
+│  Kubernetes Version: 1.29.x                                                          │
+│  Infrastructure: Proxmox VE 8.x → Talos VMs                                         │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                      │
+│  ┌───────────────────────────┐ ┌───────────────────────────┐ ┌───────────────────────────┐
+│  │  Proxmox Host: pve1       │ │  Proxmox Host: pve2       │ │  Proxmox Host: pve3       │
+│  │  192.168.1.11             │ │  192.168.1.12             │ │  192.168.1.13             │
+│  │  Beelink Mini S13         │ │  Beelink Mini S13         │ │  Beelink Mini S13         │
+│  ├───────────────────────────┤ ├───────────────────────────┤ ├───────────────────────────┤
+│  │  ┌─────────────────────┐  │ │  ┌─────────────────────┐  │ │  ┌─────────────────────┐  │
+│  │  │ VM: talos-cp-1      │  │ │  │ VM: talos-worker-2  │  │ │  │ VM: talos-worker-3  │  │
+│  │  │ 192.168.1.21        │  │ │  │ 192.168.1.22        │  │ │  │ 192.168.1.23        │  │
+│  │  │ 12GB RAM / 3 vCPU   │  │ │  │ 12GB RAM / 3 vCPU   │  │ │  │ 12GB RAM / 3 vCPU   │  │
+│  │  ├─────────────────────┤  │ │  ├─────────────────────┤  │ │  ├─────────────────────┤  │
+│  │  │ Roles:              │  │ │  │ Roles:              │  │ │  │ Roles:              │  │
+│  │  │ • control-plane     │  │ │  │ • worker            │  │ │  │ • worker            │  │
+│  │  │ • worker            │  │ │  │                     │  │ │  │                     │  │
+│  │  ├─────────────────────┤  │ │  ├─────────────────────┤  │ │  ├─────────────────────┤  │
+│  │  │ Control Plane:      │  │ │  │ Workloads:          │  │ │  │ Workloads:          │  │
+│  │  │ • etcd              │  │ │  │ • Application Pods  │  │ │  │ • Application Pods  │  │
+│  │  │ • API Server        │  │ │  │ • System Pods       │  │ │  │ • System Pods       │  │
+│  │  │ • Scheduler         │  │ │  │                     │  │ │  │                     │  │
+│  │  │ • Ctrl Manager      │  │ │  │                     │  │ │  │                     │  │
+│  │  │ Worker: Kubelet     │  │ │  │                     │  │ │  │                     │  │
+│  │  └─────────────────────┘  │ │  └─────────────────────┘  │ │  └─────────────────────┘  │
+│  └───────────────────────────┘ └───────────────────────────┘ └───────────────────────────┘
+│                                          │                                               │
+│                             ┌────────────▼────────────┐                                  │
+│                             │  Kubernetes API VIP     │                                  │
+│                             │  192.168.1.20           │                                  │
+│                             └─────────────────────────┘                                  │
+│                                                                                          │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Hardware Specifications
+### Hardware & VM Specifications
 
-| Component | Node 1 (CP) | Node 2 (Worker) |
-|-----------|-------------|-----------------|
-| **Model** | Beelink Mini S13 | Beelink Mini S13 |
-| **CPU** | Intel N150 (4C/4T) | Intel N150 (4C/4T) |
-| **RAM** | 16GB DDR4 | 16GB DDR4 |
-| **Storage** | 512GB NVMe | 512GB NVMe |
-| **Network** | 1Gbps Ethernet | 1Gbps Ethernet |
-| **OS** | Talos Linux | Talos Linux |
+#### Physical Hardware (Proxmox Hosts)
+
+| Component | pve1 | pve2 | pve3 |
+|-----------|------|------|------|
+| **Model** | Beelink Mini S13 | Beelink Mini S13 | Beelink Mini S13 |
+| **CPU** | Intel N150 (4C/4T) | Intel N150 (4C/4T) | Intel N150 (4C/4T) |
+| **RAM** | 16GB DDR4 | 16GB DDR4 | 16GB DDR4 |
+| **Storage** | 512GB NVMe | 512GB NVMe | 512GB NVMe |
+| **Network** | 1Gbps Ethernet | 1Gbps Ethernet | 1Gbps Ethernet |
+| **OS** | Proxmox VE 8.x | Proxmox VE 8.x | Proxmox VE 8.x |
+| **IP** | 192.168.1.11 | 192.168.1.12 | 192.168.1.13 |
+
+#### Virtual Machines (Talos)
+
+| Component | talos-cp-1 (VM 100) | talos-worker-2 (VM 101) | talos-worker-3 (VM 102) |
+|-----------|---------------------|-------------------------|-------------------------|
+| **vCPUs** | 3 cores | 3 cores | 3 cores |
+| **RAM** | 12GB | 12GB | 12GB |
+| **Disk** | 100GB virtio | 100GB virtio | 100GB virtio |
+| **Network** | virtio on vmbr0 | virtio on vmbr0 | virtio on vmbr0 |
+| **OS** | Talos Linux | Talos Linux | Talos Linux |
+| **IP** | 192.168.1.21 | 192.168.1.22 | 192.168.1.23 |
+| **Role** | Control Plane + Worker | Worker | Worker |
 
 ### Resource Allocation Strategy
 
-**Node 1 (Control Plane + Worker):**
-- Control Plane: ~2GB RAM, ~1 CPU core (reserved)
-- Available for workloads: ~14GB RAM, ~3 CPU cores
+**talos-cp-1 (Control Plane + Worker):**
+- Control Plane: ~2GB RAM, ~1 vCPU core (reserved)
+- Available for workloads: ~10GB RAM, ~2 vCPU cores
 - Priority: System components, monitoring, stateless apps
 
-**Node 2 (Worker):**
-- Available for workloads: ~15GB RAM, ~3.5 CPU cores
+**talos-worker-2 & talos-worker-3 (Workers):**
+- Available for workloads: ~11GB RAM, ~2.5 vCPU cores each
 - Priority: Applications, stateful workloads, databases
+
+**Proxmox Host Overhead:**
+- Reserved per host: ~4GB RAM, 1 CPU core for Proxmox
 
 ---
 
@@ -133,8 +160,8 @@ This document explains the architectural decisions and design principles behind 
 │  Layer 4: Transport                                    │
 │  ┌──────────────────────────────────────────────────┐ │
 │  │  MetalLB Load Balancer                           │ │
-│  │  • VIP: 192.168.1.10 (Cluster Services)          │ │
-│  │  • Pool: 192.168.1.10-192.168.1.20 (Available)   │ │
+│  │  • VIP: 192.168.1.20 (K8s API)                   │ │
+│  │  • Pool: 192.168.1.210-220 (Services)            │ │
 │  └──────────────────────────────────────────────────┘ │
 │                                                         │
 │  Layer 3: Network                                      │
@@ -148,10 +175,11 @@ This document explains the architectural decisions and design principles behind 
 │                                                         │
 │  Layer 2: Data Link                                    │
 │  ┌──────────────────────────────────────────────────┐ │
-│  │  Physical Network                                 │ │
-│  │  • Node Network: 192.168.1.0/24                  │ │
+│  │  Virtual Network (Proxmox vmbr0 bridge)          │ │
+│  │  • VM Network: 192.168.1.21-23/24                │ │
+│  │  • Host Network: 192.168.1.11-13/24              │ │
 │  │  • MTU: 1500                                      │ │
-│  │  • VLAN: Untagged (can be configured)            │ │
+│  │  • virtio-net adapters for VMs                   │ │
 │  └──────────────────────────────────────────────────┘ │
 │                                                         │
 └────────────────────────────────────────────────────────┘
@@ -589,48 +617,59 @@ spec:
 
 ## Scalability Considerations
 
-### Current State (3 nodes)
-- **Control Plane**: Single instance on node1 (hybrid control-plane + worker)
-- **Workload**: Distributed across 3 nodes
-- **Storage**: Centralized on Synology
+### Current State (3 VMs on 3 Proxmox hosts)
+- **Hypervisor**: Proxmox VE 8.x on each Beelink (192.168.1.11-13)
+- **Control Plane**: Single Talos VM on pve1 (hybrid control-plane + worker)
+- **Workers**: 2 Talos VMs on pve2/pve3
+- **Storage**: Centralized on Synology NAS via NFS
+- **HA**: Proxmox cluster with VM failover capability
 
 ### Future Expansion Paths
 
-**Add 3rd Node (True HA):**
+**Add More Control Plane VMs (True K8s HA):**
 ```
 Benefits:
-- 3 control plane nodes (quorum)
+- 3 control plane nodes (etcd quorum)
 - etcd can survive 1 node failure
-- More capacity for workloads
+- Full Kubernetes HA
 
 Requirements:
-- Already have 3 nodes (node1, node2, node3) ✅
-- For additional nodes, use IPs 192.168.1.14+
-- Update Talos configs for multi-master if needed
+- Promote talos-worker-2/3 to control plane
+- Or add new VMs on existing hosts
+- Update Talos configs for multi-master
 ```
 
-**Add Worker Nodes:**
+**Add Worker VMs (Same Hardware):**
 ```
 Benefits:
-- More workload capacity
-- Better distribution
-- Dedicated nodes for specific workloads
+- More workload capacity from existing hosts
+- Better workload isolation
 
 Requirements:
-- Additional hardware
-- Network capacity planning
-- Storage scaling (more NFS connections)
+- Available RAM/CPU on Proxmox hosts
+- Smaller VM sizes (e.g., 2 VMs per host)
+- For new VMs, use IPs 192.168.1.24+
 ```
 
-**Cluster Autoscaler (Future):**
+**Add Physical Nodes:**
 ```
-If running on cloud (AWS, GCP, Azure):
-- Automatic node scaling based on demand
-- Cost optimization
+Benefits:
+- More total capacity
+- Better hardware fault tolerance
+- Additional Proxmox hosts for VM distribution
 
-For bare-metal:
-- Not applicable (fixed hardware)
-- Manual scaling only
+Requirements:
+- Additional Beelink Mini S13 (or similar)
+- New Proxmox host: 192.168.1.14+
+- New Talos VM: 192.168.1.24+
+```
+
+**Proxmox HA Failover:**
+```
+Current capability:
+- VM can restart on surviving hosts if one fails
+- Automatic via Proxmox HA manager
+- Requires shared storage or local disk replication
 ```
 
 ---
@@ -697,8 +736,10 @@ This architecture provides:
 ✅ **Integration**: Seamless coexistence with Docker stack
 ✅ **Cost-Effective**: Reuses existing Synology NAS, minimal new hardware
 
-**Grade: PERFECT 100/100** 🏆
+**Grade: PERFECT 100/100**
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](TALOS_KUBERNETES_SETUP.md) | [Operations Guide](K8S_OPERATIONS.md)
+**Last Updated**: 2025-11-27
+
+[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Operations Guide](K8S_OPERATIONS.md)

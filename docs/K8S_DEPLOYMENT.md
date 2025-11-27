@@ -1,6 +1,25 @@
 # Kubernetes Deployment Guide
 
-This guide explains the deployment architecture for running your home stack on Kubernetes with only Pi-hole remaining on Docker.
+This guide explains the deployment architecture for running your home stack on Kubernetes (Talos VMs on Proxmox) with only Pi-hole remaining on Docker.
+
+---
+
+## Cluster Overview
+
+| Component | IP Address | Description |
+|-----------|------------|-------------|
+| **Proxmox Hosts** | | |
+| pve1 | `192.168.1.11` | Beelink #1 (hosts VM 100) |
+| pve2 | `192.168.1.12` | Beelink #2 (hosts VM 101) |
+| pve3 | `192.168.1.13` | Beelink #3 (hosts VM 102) |
+| **Talos VMs** | | |
+| talos-cp-1 (VM 100) | `192.168.1.21` | Control plane + worker |
+| talos-worker-2 (VM 101) | `192.168.1.22` | Dedicated worker |
+| talos-worker-3 (VM 102) | `192.168.1.23` | Dedicated worker |
+| **Services** | | |
+| K8s API VIP | `192.168.1.20` | Kubernetes API endpoint |
+| Synology NAS | `192.168.1.5` | NFS storage, DNS (Pi-hole) |
+| MetalLB Pool | `192.168.1.210-220` | LoadBalancer service IPs |
 
 ---
 
@@ -21,49 +40,50 @@ This guide explains the deployment architecture for running your home stack on K
 ### The Setup
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Your Network                         │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌──────────────────────────────────────┐              │
-│  │     Synology DS 224+ (Docker)        │              │
-│  │  ┌────────────────────────────────┐  │              │
-│  │  │  Pi-hole (DNS + Ad Blocking)   │  │              │
-│  │  │  - Port 53 (DNS)               │  │              │
-│  │  │  - Port 80 (Admin UI)          │  │              │
-│  │  └────────────────────────────────┘  │              │
-│  │                                       │              │
-│  │  Also provides:                       │              │
-│  │  - NFS storage for Kubernetes PVs     │              │
-│  │  - Backup target for Velero           │              │
-│  │  - File storage for K8s logs/metrics  │              │
-│  └──────────────────────────────────────┘              │
-│                        │                                │
-│                        │ NFS + Network                   │
-│                        │                                │
-│  ┌──────────────────────────────────────┐              │
-│  │  Kubernetes Cluster (Talos Linux)    │              │
-│  │                                       │              │
-│  │  ┌─────────────┐    ┌─────────────┐  │              │
-│  │  │ Beelink #1  │    │ Beelink #2  │  │              │
-│  │  │ (Control +  │    │ (Worker)    │  │              │
-│  │  │  Worker)    │    │             │  │              │
-│  │  └─────────────┘    └─────────────┘  │              │
-│  │                                       │              │
-│  │  Running:                             │              │
-│  │  - Traefik (Ingress)                  │              │
-│  │  - Authelia (SSO/2FA)                 │              │
-│  │  - Vaultwarden (Passwords)            │              │
-│  │  - Nextcloud (Files)                  │              │
-│  │  - Homepage (Dashboard)               │              │
-│  │  - IT-Tools (Utilities)               │              │
-│  │  - Prometheus + Grafana (Monitoring)  │              │
-│  │  - Loki (Logging)                     │              │
-│  │  - ArgoCD (GitOps)                    │              │
-│  │  - Conjur (Secrets)                   │              │
-│  └──────────────────────────────────────┘              │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                         Your Network                              │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │             PROXMOX VE 8.x HA CLUSTER                        │ │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐  │ │
+│  │  │  pve1 (.11)     │ │  pve2 (.12)     │ │  pve3 (.13)   │  │ │
+│  │  │  Beelink #1     │ │  Beelink #2     │ │  Beelink #3   │  │ │
+│  │  │  ─────────────  │ │  ─────────────  │ │  ───────────  │  │ │
+│  │  │ ┌─────────────┐ │ │ ┌─────────────┐ │ │ ┌───────────┐ │  │ │
+│  │  │ │ VM 100      │ │ │ │ VM 101      │ │ │ │ VM 102    │ │  │ │
+│  │  │ │ talos-cp-1  │ │ │ │ talos-      │ │ │ │ talos-    │ │  │ │
+│  │  │ │ (.21)       │ │ │ │ worker-2    │ │ │ │ worker-3  │ │  │ │
+│  │  │ │ CP + Worker │ │ │ │ (.22)       │ │ │ │ (.23)     │ │  │ │
+│  │  │ └─────────────┘ │ │ └─────────────┘ │ │ └───────────┘ │  │ │
+│  │  └─────────────────┘ └─────────────────┘ └───────────────┘  │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                               │                                   │
+│                    K8s API VIP: 192.168.1.20                      │
+│                               │                                   │
+│  ┌────────────────────────────▼──────────────────────────────┐   │
+│  │              Kubernetes Cluster (Talos VMs)                │   │
+│  │                                                            │   │
+│  │  Running Services:                                         │   │
+│  │  - Traefik (Ingress)         - Prometheus + Grafana        │   │
+│  │  - Authelia (SSO/2FA)        - Loki + Jaeger               │   │
+│  │  - Vaultwarden (Passwords)   - ArgoCD (GitOps)             │   │
+│  │  - Nextcloud (Files)         - Conjur (Secrets)            │   │
+│  │  - Homepage (Dashboard)      - Velero (Backups)            │   │
+│  │  - IT-Tools (Utilities)      - Trivy (Security)            │   │
+│  └────────────────────────────┬──────────────────────────────┘   │
+│                               │ NFS Storage + DNS                 │
+│  ┌────────────────────────────▼──────────────────────────────┐   │
+│  │              Synology DS 224+ (192.168.1.5)                │   │
+│  │  ┌──────────────────────┐                                  │   │
+│  │  │  Docker: Pi-hole     │  Also provides:                  │   │
+│  │  │  - DNS + Ad Blocking │  - NFS storage for K8s PVs       │   │
+│  │  │  - Port 53           │  - Backup target (Velero)        │   │
+│  │  │  - Port 8053 (Admin) │  - Logs/metrics storage          │   │
+│  │  └──────────────────────┘                                  │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Service Distribution
@@ -437,11 +457,11 @@ services:
     ports:
       - "53:53/tcp"
       - "53:53/udp"
-      - "8080:80/tcp"  # Admin UI
+      - "8053:80/tcp"  # Admin UI
     environment:
       TZ: 'America/New_York'
       WEBPASSWORD: 'your_secure_password'
-      FTLCONF_LOCAL_IPV4: '192.168.1.100'  # Synology IP
+      FTLCONF_LOCAL_IPV4: '192.168.1.5'  # Synology IP
       DNS1: '1.1.1.1'
       DNS2: '1.0.0.1'
     volumes:
@@ -476,15 +496,15 @@ docker-compose up -d pihole
 **Configure Kubernetes Nodes to Use Pi-hole:**
 
 ```bash
-# Add to Talos machine config
-talosctl edit machineconfig -n 192.168.1.201,192.168.1.202
+# Add to Talos machine config (all 3 VMs)
+talosctl edit machineconfig -n 192.168.1.21,192.168.1.22,192.168.1.23
 
 # Add under machine.network:
 machine:
   network:
     nameservers:
-      - 192.168.1.100  # Synology Pi-hole
-      - 1.1.1.1        # Fallback
+      - 192.168.1.5  # Synology Pi-hole
+      - 1.1.1.1      # Fallback
 ```
 
 ---
@@ -505,7 +525,7 @@ machine:
 | **Nextcloud** | https://cloud.yourdomain.com | No (own auth) |
 | **IT-Tools** | https://tools.yourdomain.com | Optional |
 | **Conjur** | https://conjur.yourdomain.com | Yes |
-| **Pi-hole** | http://192.168.1.100:8080 | No (own auth) |
+| **Pi-hole** | http://192.168.1.5:8053 | No (own auth) |
 
 ### DNS Configuration
 
@@ -677,10 +697,10 @@ kubectl logs <pod-name> -n <namespace> --previous
 ### DNS Issues
 
 ```bash
-# From Kubernetes node
-talosctl -n 192.168.1.201 shell
+# From Kubernetes node (any VM)
+talosctl -n 192.168.1.21 shell
 nslookup google.com
-# Should resolve via Pi-hole (192.168.1.100)
+# Should resolve via Pi-hole (192.168.1.5)
 
 # From pod
 kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -- /bin/bash

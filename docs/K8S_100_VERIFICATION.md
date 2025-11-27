@@ -192,7 +192,7 @@ kubectl get pods -n conjur
 kubectl get externalsecrets -A
 
 # Check etcd encryption (Talos enables by default)
-talosctl get etcdmembers -n 192.168.1.11
+talosctl get etcdmembers -n 192.168.1.21
 ```
 
 **Files**:
