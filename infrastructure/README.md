@@ -293,3 +293,8 @@ talosctl -n 192.168.1.21 reset --graceful=false
 - [Talos Kubernetes Setup](../docs/TALOS_KUBERNETES_SETUP.md)
 - [K8s Architecture](../docs/K8S_ARCHITECTURE.md)
 - [Infrastructure as Code Guide](../docs/INFRASTRUCTURE_AS_CODE.md)
+- [Secrets Management Guide](../docs/SECRETS_MANAGEMENT.md)
+
+---
+
+[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Talos Config](../talos/README.md)

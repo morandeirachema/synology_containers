@@ -171,6 +171,7 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 - **[K8s Architecture](docs/K8S_ARCHITECTURE.md)**: Design decisions and architecture (600+ lines)
 - **[Operations Guide](docs/K8S_OPERATIONS.md)**: Day-2 operations, upgrades, maintenance
 - **[Deployment Guide](docs/K8S_DEPLOYMENT.md)**: Service deployment strategies and Pi-hole Docker setup
+- **[Secrets Management](docs/SECRETS_MANAGEMENT.md)**: Kustomize, Conjur, and External Secrets guide ⭐ NEW
 - **[Kustomize Guide](k8s/README.md)**: Using Kustomize for environment management
 
 **⚙️ Ready-to-Use Configurations with Kustomize** (44+ files, 8,500+ lines):
@@ -2019,6 +2020,7 @@ docker-compose config > config.txt
 | **K8s Architecture** | Design decisions and architecture | [docs/K8S_ARCHITECTURE.md](docs/K8S_ARCHITECTURE.md) |
 | **K8s Operations** | Day-2 operations, upgrades, maintenance | [docs/K8S_OPERATIONS.md](docs/K8S_OPERATIONS.md) |
 | **Service Deployment** | Service deployment strategies | [docs/K8S_DEPLOYMENT.md](docs/K8S_DEPLOYMENT.md) |
+| **🔐 Secrets Management** | **Kustomize, Conjur, and ESO guide** ⭐ NEW | **[docs/SECRETS_MANAGEMENT.md](docs/SECRETS_MANAGEMENT.md)** |
 | **K8s Migration** | Docker to Kubernetes migration guide | [docs/K8S_MIGRATION.md](docs/K8S_MIGRATION.md) |
 | **Optional Enhancements** | **Beyond 100/100: Enterprise features** ⭐ | **[k8s/optional/README.md](k8s/optional/README.md)** |
 | **Infrastructure as Code** | | |

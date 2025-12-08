@@ -315,6 +315,8 @@ kubectl apply -k k8s/overlays/home/
 
 ## 🔐 Secrets Management
 
+**📖 Full Guide**: [docs/SECRETS_MANAGEMENT.md](../docs/SECRETS_MANAGEMENT.md)
+
 ### Option 1: Kustomize Secret Generator (Development)
 
 ```yaml
@@ -326,7 +328,19 @@ secretGenerator:
       - password=secret123
 ```
 
-### Option 2: External Secrets Operator + Conjur (Production)
+### Option 2: Environment Files
+
+```yaml
+# In kustomization.yaml
+secretGenerator:
+  - name: cloudflare-api-credentials
+    envs:
+      - cloudflare-credentials.env  # Git-ignored
+    options:
+      disableNameSuffixHash: true
+```
+
+### Option 3: External Secrets Operator + Conjur (Production)
 
 See `k8s/infrastructure/external-secrets/README.md` for Conjur setup.
 
@@ -506,8 +520,13 @@ kubectl get certificates -n production
 - [Talos Kubernetes Setup Guide](../docs/TALOS_KUBERNETES_SETUP.md)
 - [Kubernetes Architecture](../docs/K8S_ARCHITECTURE.md)
 - [Operations Guide](../docs/K8S_OPERATIONS.md)
-- [Conjur Secrets Management](./infrastructure/external-secrets/README.md)
+- [🔐 Secrets Management Guide](../docs/SECRETS_MANAGEMENT.md) - Complete guide for Kustomize, Conjur, and ESO
+- [Conjur Setup Details](./infrastructure/external-secrets/README.md)
 - [Kustomize Official Docs](https://kustomize.io/)
+
+---
+
+[Back to Main README](../README.md) | [Talos Setup](../docs/TALOS_KUBERNETES_SETUP.md) | [Architecture](../docs/K8S_ARCHITECTURE.md)
 
 ---
 
