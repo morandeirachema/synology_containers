@@ -1,0 +1,52 @@
+# Proxmox Terraform Variables
+# Copy this file to terraform.tfvars and customize
+#
+# IMPORTANT: Never commit terraform.tfvars with real credentials to Git!
+# Add terraform.tfvars to .gitignore
+
+# =============================================================================
+# Proxmox Connection (REQUIRED - customize these)
+# =============================================================================
+
+proxmox_api_url      = "https://192.168.1.11:8006/api2/json"
+proxmox_api_user     = "root@pam"
+proxmox_api_password = "your-proxmox-password"  # CHANGE THIS!
+proxmox_insecure     = true  # Set to false if using valid TLS cert
+
+# =============================================================================
+# VM Resources (adjust based on your hardware)
+# =============================================================================
+
+# Beelink Mini S13 with 16GB RAM
+# Reserve ~4GB for Proxmox, allocate 12GB to VM
+vm_cpu_cores    = 3      # Intel N150 has 4 cores
+vm_memory_mb    = 12288  # 12GB RAM
+vm_disk_size_gb = 100    # 100GB disk
+
+# Storage configuration
+vm_storage        = "local-lvm"
+vm_network_bridge = "vmbr0"
+
+# =============================================================================
+# Talos Configuration
+# =============================================================================
+
+# Download from: https://github.com/siderolabs/talos/releases
+# Upload to Proxmox: Datacenter > Storage > ISO Images > Upload
+talos_iso_file = "local:iso/talos-amd64.iso"
+talos_version  = "v1.9.0"
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+
+network_gateway    = "192.168.1.1"
+network_dns        = ["192.168.1.5", "1.1.1.1"]  # Pi-hole + Cloudflare
+kubernetes_api_vip = "192.168.1.20"
+
+# =============================================================================
+# Deployment Options
+# =============================================================================
+
+start_vms_on_create = true
+environment         = "production"

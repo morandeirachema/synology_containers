@@ -64,7 +64,7 @@ This document explains the architectural decisions and design principles behind 
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │  Cluster: my-cluster                                                                 │
 │  Kubernetes Version: 1.29.x                                                          │
-│  Infrastructure: Proxmox VE 8.x → Talos VMs                                         │
+│  Infrastructure: Proxmox VE 9.x → Talos VMs                                         │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                      │
 │  ┌───────────────────────────┐ ┌───────────────────────────┐ ┌───────────────────────────┐
@@ -109,7 +109,7 @@ This document explains the architectural decisions and design principles behind 
 | **RAM** | 16GB DDR4 | 16GB DDR4 | 16GB DDR4 |
 | **Storage** | 512GB NVMe | 512GB NVMe | 512GB NVMe |
 | **Network** | 1Gbps Ethernet | 1Gbps Ethernet | 1Gbps Ethernet |
-| **OS** | Proxmox VE 8.x | Proxmox VE 8.x | Proxmox VE 8.x |
+| **OS** | Proxmox VE 9.x | Proxmox VE 9.x | Proxmox VE 9.x |
 | **IP** | 192.168.1.11 | 192.168.1.12 | 192.168.1.13 |
 
 #### Virtual Machines (Talos)
@@ -618,7 +618,7 @@ spec:
 ## Scalability Considerations
 
 ### Current State (3 VMs on 3 Proxmox hosts)
-- **Hypervisor**: Proxmox VE 8.x on each Beelink (192.168.1.11-13)
+- **Hypervisor**: Proxmox VE 9.x on each Beelink (192.168.1.11-13)
 - **Control Plane**: Single Talos VM on pve1 (hybrid control-plane + worker)
 - **Workers**: 2 Talos VMs on pve2/pve3
 - **Storage**: Centralized on Synology NAS via NFS

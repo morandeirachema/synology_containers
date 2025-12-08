@@ -45,7 +45,7 @@ This guide explains the deployment architecture for running your home stack on K
 ├───────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │             PROXMOX VE 8.x HA CLUSTER                        │ │
+│  │             PROXMOX VE 9.x HA CLUSTER                        │ │
 │  │  ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐  │ │
 │  │  │  pve1 (.11)     │ │  pve2 (.12)     │ │  pve3 (.13)   │  │ │
 │  │  │  Beelink #1     │ │  Beelink #2     │ │  Beelink #3   │  │ │

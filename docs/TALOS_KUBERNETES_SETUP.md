@@ -5,7 +5,7 @@
 This guide walks you through setting up a production-grade Kubernetes cluster using Talos Linux running as virtual machines on Proxmox VE. The cluster runs on 3x Beelink Mini S13 (Intel N150) devices, integrated with your Synology DS 224+ NAS for storage and observability.
 
 **Cluster Specifications:**
-- **Hypervisor**: Proxmox VE 8.x on each Beelink host
+- **Hypervisor**: Proxmox VE 9.x on each Beelink host
 - **Control Plane**: 1x Talos VM (192.168.1.21 - hybrid control+worker)
 - **Worker Nodes**: 2x Talos VMs (192.168.1.22, 192.168.1.23 - dedicated workers)
 - **VM Resources**: 12GB RAM, 3 vCPU, 100GB disk per VM
@@ -99,7 +99,7 @@ This guide walks you through setting up a production-grade Kubernetes cluster us
 │  │   Beelink S13 #1        │ │   Beelink S13 #2        │ │   Beelink S13 #3        │
 │  │   192.168.1.11          │ │   192.168.1.12          │ │   192.168.1.13          │
 │  ├─────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────┤
-│  │     Proxmox VE 8.x      │ │     Proxmox VE 8.x      │ │     Proxmox VE 8.x      │
+│  │     Proxmox VE 9.x      │ │     Proxmox VE 9.x      │ │     Proxmox VE 9.x      │
 │  │  ┌───────────────────┐  │ │  ┌───────────────────┐  │ │  ┌───────────────────┐  │
 │  │  │ Talos VM (100)    │  │ │  │ Talos VM (101)    │  │ │  │ Talos VM (102)    │  │
 │  │  │ 192.168.1.21      │  │ │  │ 192.168.1.22      │  │ │  │ 192.168.1.23      │  │
@@ -635,7 +635,7 @@ gatewayAPI:
 **Install Cilium:**
 ```bash
 helm install cilium cilium/cilium \
-  --version 1.14.5 \
+  --version 1.16.5 \
   --namespace kube-system \
   --values ../k8s/bootstrap/cilium/values.yaml
 ```
@@ -673,7 +673,7 @@ MetalLB provides LoadBalancer services in bare-metal environments.
 
 **Install MetalLB:**
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
 ```
 
 **Wait for MetalLB to be ready:**
@@ -720,7 +720,7 @@ helm repo update
 helm install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
-  --version v1.13.3 \
+  --version v1.16.3 \
   --set installCRDs=true \
   --set global.leaderElection.namespace=cert-manager
 ```
@@ -1440,9 +1440,9 @@ helm install trivy-operator aqua/trivy-operator \
 brew install velero
 
 # Linux
-wget https://github.com/vmware-tanzu/velero/releases/download/v1.12.3/velero-v1.12.3-linux-amd64.tar.gz
-tar -xvf velero-v1.12.3-linux-amd64.tar.gz
-sudo mv velero-v1.12.3-linux-amd64/velero /usr/local/bin/
+wget https://github.com/vmware-tanzu/velero/releases/download/v1.15.0/velero-v1.15.0-linux-amd64.tar.gz
+tar -xvf velero-v1.15.0-linux-amd64.tar.gz
+sudo mv velero-v1.15.0-linux-amd64/velero /usr/local/bin/
 ```
 
 **Create Velero values** `../k8s/infrastructure/velero/values.yaml`:

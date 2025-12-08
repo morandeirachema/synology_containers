@@ -1,0 +1,212 @@
+---
+# Proxmox VE Initial Setup Playbook
+# This playbook configures freshly installed Proxmox nodes
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/proxmox-setup.yml
+#
+# Prerequisites:
+#   - Proxmox VE installed on all nodes
+#   - SSH access configured
+#   - Root password set
+
+- name: Configure Proxmox VE Nodes
+  hosts: proxmox
+  become: true
+  gather_facts: true
+
+  vars:
+    # Repository configuration
+    proxmox_enterprise_repo: false  # Set to true if you have subscription
+
+    # Packages to install
+    proxmox_packages:
+      - htop
+      - iotop
+      - net-tools
+      - vim
+      - curl
+      - wget
+      - tmux
+      - chrony
+      - libsasl2-modules
+
+  tasks:
+    # =========================================================================
+    # Repository Configuration
+    # =========================================================================
+
+    - name: Disable enterprise repository (if no subscription)
+      ansible.builtin.command: >
+        mv /etc/apt/sources.list.d/pve-enterprise.list
+        /etc/apt/sources.list.d/pve-enterprise.list.disabled
+      args:
+        creates: /etc/apt/sources.list.d/pve-enterprise.list.disabled
+        removes: /etc/apt/sources.list.d/pve-enterprise.list
+      when: not proxmox_enterprise_repo
+
+    - name: Add no-subscription repository
+      ansible.builtin.copy:
+        content: |
+          deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        mode: '0644'
+      when: not proxmox_enterprise_repo
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # =========================================================================
+    # System Updates
+    # =========================================================================
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: full
+        autoremove: true
+        autoclean: true
+      register: apt_upgrade
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name: "{{ proxmox_packages }}"
+        state: present
+
+    # =========================================================================
+    # Subscription Nag Removal (Optional)
+    # =========================================================================
+
+    - name: Backup proxmoxlib.js
+      ansible.builtin.copy:
+        src: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        dest: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js.bak
+        remote_src: true
+        mode: '0644'
+      when: not proxmox_enterprise_repo
+
+    - name: Remove subscription notice
+      ansible.builtin.replace:
+        path: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        regexp: "data.status !== 'Active'"
+        replace: "false"
+      when: not proxmox_enterprise_repo
+      notify: Restart pveproxy
+
+    # =========================================================================
+    # NTP Configuration
+    # =========================================================================
+
+    - name: Configure chrony NTP
+      ansible.builtin.blockinfile:
+        path: /etc/chrony/chrony.conf
+        block: |
+          # Custom NTP servers for homelab
+          server {{ ntp_servers[0] }} iburst
+          server {{ ntp_servers[1] }} iburst
+          server {{ ntp_servers[2] }} iburst
+        marker: "# {mark} ANSIBLE MANAGED NTP SERVERS"
+      notify: Restart chrony
+
+    - name: Ensure chrony is running
+      ansible.builtin.systemd:
+        name: chrony
+        state: started
+        enabled: true
+
+    # =========================================================================
+    # Network Configuration
+    # =========================================================================
+
+    - name: Verify network bridge exists
+      ansible.builtin.command: brctl show vmbr0
+      register: bridge_check
+      changed_when: false
+      failed_when: bridge_check.rc != 0
+
+    - name: Display bridge configuration
+      ansible.builtin.debug:
+        msg: "Bridge vmbr0 configured: {{ bridge_check.stdout_lines }}"
+
+    # =========================================================================
+    # Security Hardening
+    # =========================================================================
+
+    - name: Set SSH configuration
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+      notify: Restart sshd
+      tags: security
+
+    # =========================================================================
+    # Firewall Configuration
+    # =========================================================================
+
+    - name: Enable Proxmox firewall
+      ansible.builtin.lineinfile:
+        path: /etc/pve/firewall/cluster.fw
+        line: "[OPTIONS]\nenable: 1"
+        create: true
+        mode: '0640'
+      tags: firewall
+
+  handlers:
+    - name: Restart pveproxy
+      ansible.builtin.systemd:
+        name: pveproxy
+        state: restarted
+
+    - name: Restart chrony
+      ansible.builtin.systemd:
+        name: chrony
+        state: restarted
+
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted
+
+# =============================================================================
+# Post-setup verification
+# =============================================================================
+
+- name: Verify Proxmox Setup
+  hosts: proxmox
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check Proxmox version
+      ansible.builtin.command: pveversion
+      register: pve_version
+      changed_when: false
+
+    - name: Display Proxmox version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ pve_version.stdout }}"
+
+    - name: Check time synchronization
+      ansible.builtin.command: chronyc tracking
+      register: chrony_status
+      changed_when: false
+
+    - name: Verify NTP sync
+      ansible.builtin.debug:
+        msg: "NTP Status: {{ chrony_status.stdout_lines[0] }}"
+
+    - name: Check available storage
+      ansible.builtin.command: pvesm status
+      register: storage_status
+      changed_when: false
+
+    - name: Display storage status
+      ansible.builtin.debug:
+        msg: "{{ storage_status.stdout_lines }}"

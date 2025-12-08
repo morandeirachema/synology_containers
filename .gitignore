@@ -53,3 +53,34 @@ volumes/
 *.backup
 *.bak
 *.old
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Terraform outputs (sensitive)
+infrastructure/terraform/*/outputs/
+
+# Ansible
+*.retry
+infrastructure/ansible/inventory/hosts.yml
+!infrastructure/ansible/inventory/hosts.yml.example
+
+# Talos configs (sensitive)
+talos/controlplane.yaml
+talos/worker*.yaml
+talos/talosconfig
+talos/kubeconfig
+!talos/*.example

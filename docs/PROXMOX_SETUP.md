@@ -41,7 +41,7 @@ This guide covers the virtualization layer for our Kubernetes homelab. Instead o
 │  │   Beelink S13 #1    │  │   Beelink S13 #2    │  │   Beelink S13 #3    │ │
 │  │   192.168.1.11      │  │   192.168.1.12      │  │   192.168.1.13      │ │
 │  ├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤ │
-│  │   Proxmox VE 8.x    │  │   Proxmox VE 8.x    │  │   Proxmox VE 8.x    │ │
+│  │   Proxmox VE 9.x    │  │   Proxmox VE 9.x    │  │   Proxmox VE 9.x    │ │
 │  │  ┌───────────────┐  │  │  ┌───────────────┐  │  │  ┌───────────────┐  │ │
 │  │  │ Talos VM      │  │  │  │ Talos VM      │  │  │  │ Talos VM      │  │ │
 │  │  │ 192.168.1.21  │  │  │  │ 192.168.1.22  │  │  │  │ 192.168.1.23  │  │ │
@@ -193,7 +193,7 @@ Press **F10** to save and exit BIOS.
 ### Download Proxmox VE ISO
 
 1. Visit: https://www.proxmox.com/en/downloads/proxmox-virtual-environment/iso
-2. Download latest Proxmox VE 8.x ISO
+2. Download latest Proxmox VE 9.x ISO
 3. Verify SHA256 checksum
 
 ### Create Bootable USB
@@ -204,7 +204,7 @@ Press **F10** to save and exit BIOS.
 lsblk
 
 # Write ISO to USB (replace /dev/sdX with your device)
-sudo dd if=proxmox-ve_8.x.iso of=/dev/sdX bs=4M status=progress
+sudo dd if=proxmox-ve_9.x.iso of=/dev/sdX bs=4M status=progress
 sync
 ```
 

@@ -1,0 +1,50 @@
+# Talos Cluster Terraform Variables
+# Copy this file to terraform.tfvars and customize
+#
+# IMPORTANT: Never commit terraform.tfvars to Git!
+
+# =============================================================================
+# Cluster Configuration
+# =============================================================================
+
+cluster_name       = "talos-cluster"
+talos_version      = "v1.9.0"
+kubernetes_version = "1.31.0"
+
+# =============================================================================
+# Node IP Addresses
+# =============================================================================
+
+# Control plane node (hybrid - also runs workloads)
+controlplane_ips = ["192.168.1.21"]
+
+# Worker nodes
+worker_ips = ["192.168.1.22", "192.168.1.23"]
+
+# Virtual IP for Kubernetes API (MetalLB will manage this)
+kubernetes_api_vip = "192.168.1.20"
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+
+network_gateway = "192.168.1.1"
+network_dns     = ["192.168.1.5", "1.1.1.1"]  # Pi-hole + Cloudflare
+network_subnet  = "192.168.1.0/24"
+
+# Kubernetes internal networks
+pod_subnet     = "10.244.0.0/16"
+service_subnet = "10.96.0.0/12"
+
+# =============================================================================
+# Cluster Features
+# =============================================================================
+
+# Allow pods on control plane (required for 3-node cluster)
+allow_scheduling_on_controlplane = true
+
+# CNI will be installed separately (Cilium)
+install_cni = false
+
+# Disable kube-proxy (Cilium replaces it)
+disable_kube_proxy = true

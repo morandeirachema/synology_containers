@@ -1,0 +1,160 @@
+---
+# Proxmox VM Creation Playbook
+# Creates Talos VMs on Proxmox cluster
+#
+# Note: This is an alternative to Terraform for VM creation
+# Recommended: Use Terraform (../terraform/proxmox/) instead
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/proxmox-vms.yml
+
+- name: Create Talos VMs on Proxmox
+  hosts: proxmox
+  become: true
+  gather_facts: false
+
+  vars:
+    # VM Configuration
+    talos_vms:
+      - vmid: 100
+        name: talos-cp-1
+        node: pve1
+        ip: 192.168.1.21
+        role: controlplane
+      - vmid: 101
+        name: talos-worker-2
+        node: pve2
+        ip: 192.168.1.22
+        role: worker
+      - vmid: 102
+        name: talos-worker-3
+        node: pve3
+        ip: 192.168.1.23
+        role: worker
+
+    # VM Resources
+    vm_memory: 12288    # 12GB
+    vm_cores: 3
+    vm_disk_size: 100   # GB
+    vm_storage: local-lvm
+    vm_network_bridge: vmbr0
+
+    # Talos ISO
+    talos_iso: "nas-iso:iso/talos-amd64.iso"
+
+  tasks:
+    # =========================================================================
+    # Create VMs
+    # =========================================================================
+
+    - name: Create Talos VMs
+      ansible.builtin.command: >
+        qm create {{ item.vmid }}
+        --name {{ item.name }}
+        --memory {{ vm_memory }}
+        --balloon 0
+        --cores {{ vm_cores }}
+        --sockets 1
+        --cpu host
+        --machine q35
+        --bios ovmf
+        --efidisk0 {{ vm_storage }}:1,efitype=4m,pre-enrolled-keys=0
+        --scsihw virtio-scsi-single
+        --scsi0 {{ vm_storage }}:{{ vm_disk_size }},discard=on,ssd=1
+        --net0 virtio,bridge={{ vm_network_bridge }}
+        --ide2 {{ talos_iso }},media=cdrom
+        --boot order=ide2
+        --ostype l26
+        --tags terraform,talos,kubernetes
+      loop: "{{ talos_vms }}"
+      when: inventory_hostname == item.node
+      register: vm_create
+      changed_when: vm_create.rc == 0
+      failed_when: false
+
+    # =========================================================================
+    # Start VMs
+    # =========================================================================
+
+    - name: Start Talos VMs
+      ansible.builtin.command: "qm start {{ item.vmid }}"
+      loop: "{{ talos_vms }}"
+      when: inventory_hostname == item.node
+      register: vm_start
+      changed_when: vm_start.rc == 0
+      failed_when: false
+
+    # =========================================================================
+    # Add VMs to HA
+    # =========================================================================
+
+    - name: Add VMs to HA group
+      ansible.builtin.command: >
+        ha-manager add vm:{{ item.vmid }}
+        --group talos-vms
+        --state started
+        --max_restart 3
+        --max_relocate 3
+      loop: "{{ talos_vms }}"
+      when: inventory_hostname == 'pve1'
+      register: ha_add
+      changed_when: ha_add.rc == 0
+      failed_when: false
+
+# =============================================================================
+# Verify VM Creation
+# =============================================================================
+
+- name: Verify VM Creation
+  hosts: proxmox
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: List VMs on this node
+      ansible.builtin.command: qm list
+      register: vm_list
+      changed_when: false
+
+    - name: Display VM list
+      ansible.builtin.debug:
+        msg: "{{ vm_list.stdout_lines }}"
+
+- name: Display Next Steps
+  hosts: proxmox[0]
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Show next steps
+      ansible.builtin.debug:
+        msg: |
+
+          ============================================================
+          TALOS VMs CREATED
+          ============================================================
+
+          VMs Created:
+            - VM 100 (talos-cp-1) on pve1 -> 192.168.1.21
+            - VM 101 (talos-worker-2) on pve2 -> 192.168.1.22
+            - VM 102 (talos-worker-3) on pve3 -> 192.168.1.23
+
+          VMs are booted with Talos ISO in maintenance mode.
+
+          Next Steps:
+
+          1. Note the DHCP IPs from VM consoles
+
+          2. Apply Talos configuration:
+             cd ../terraform/talos
+             terraform init
+             terraform apply
+
+          OR manually:
+             talosctl apply-config --insecure --nodes <dhcp-ip> --file controlplane.yaml
+
+          3. After Talos installed, remove ISO:
+             qm set 100 --ide2 none
+             qm set 100 --boot order=scsi0
+
+          ============================================================

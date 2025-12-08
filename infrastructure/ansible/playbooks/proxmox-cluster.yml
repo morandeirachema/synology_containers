@@ -1,0 +1,239 @@
+---
+# Proxmox Cluster Formation Playbook
+# Creates a 3-node Proxmox cluster with HA configuration
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/proxmox-cluster.yml
+#
+# Prerequisites:
+#   - All nodes configured with proxmox-setup.yml
+#   - Unique hostnames on all nodes
+#   - Network connectivity between nodes
+
+- name: Create Proxmox Cluster
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  serial: 1  # Run on one host at a time
+
+  vars:
+    cluster_name: "{{ proxmox_cluster_name | default('homelab-cluster') }}"
+    master_node: "{{ groups['proxmox'] | map('extract', hostvars) | selectattr('proxmox_cluster_master', 'defined') | selectattr('proxmox_cluster_master', 'equalto', true) | map(attribute='ansible_host') | first }}"
+
+  tasks:
+    # =========================================================================
+    # Pre-flight Checks
+    # =========================================================================
+
+    - name: Check if already in a cluster
+      ansible.builtin.command: pvecm status
+      register: cluster_status
+      changed_when: false
+      failed_when: false
+
+    - name: Set cluster membership fact
+      ansible.builtin.set_fact:
+        in_cluster: "{{ 'Cluster information' in cluster_status.stdout }}"
+
+    - name: Display current cluster status
+      ansible.builtin.debug:
+        msg: "Node {{ inventory_hostname }} cluster status: {{ 'In cluster' if in_cluster else 'Not in cluster' }}"
+
+    # =========================================================================
+    # Create Cluster (Master Node Only)
+    # =========================================================================
+
+    - name: Create cluster on master node
+      ansible.builtin.command: "pvecm create {{ cluster_name }}"
+      when:
+        - proxmox_cluster_master | default(false)
+        - not in_cluster
+      register: cluster_create
+
+    - name: Wait for cluster to initialize
+      ansible.builtin.pause:
+        seconds: 10
+      when:
+        - proxmox_cluster_master | default(false)
+        - cluster_create.changed | default(false)
+
+    # =========================================================================
+    # Join Cluster (Worker Nodes)
+    # =========================================================================
+
+    - name: Join cluster on worker nodes
+      ansible.builtin.expect:
+        command: "pvecm add {{ master_node }}"
+        responses:
+          "Please enter superuser.*password.*": "{{ ansible_ssh_pass | default('') }}"
+          "Are you sure you want to continue connecting.*": "yes"
+        timeout: 120
+      when:
+        - not proxmox_cluster_master | default(false)
+        - not in_cluster
+      register: cluster_join
+
+    - name: Wait for node to join cluster
+      ansible.builtin.pause:
+        seconds: 15
+      when:
+        - not proxmox_cluster_master | default(false)
+        - cluster_join.changed | default(false)
+
+# =============================================================================
+# Verify Cluster Formation
+# =============================================================================
+
+- name: Verify Cluster Status
+  hosts: proxmox[0]
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Get cluster status
+      ansible.builtin.command: pvecm status
+      register: final_cluster_status
+      changed_when: false
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: "{{ final_cluster_status.stdout_lines }}"
+
+    - name: Get cluster nodes
+      ansible.builtin.command: pvecm nodes
+      register: cluster_nodes
+      changed_when: false
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ cluster_nodes.stdout_lines }}"
+
+    - name: Verify quorum
+      ansible.builtin.assert:
+        that:
+          - "'Quorate:          Yes' in final_cluster_status.stdout"
+        fail_msg: "Cluster is not quorate!"
+        success_msg: "Cluster is quorate with all nodes"
+
+# =============================================================================
+# Configure NFS Storage
+# =============================================================================
+
+- name: Configure Shared NFS Storage
+  hosts: proxmox[0]
+  become: true
+  gather_facts: false
+
+  vars:
+    nfs_server: "{{ proxmox_nfs_server | default('192.168.1.5') }}"
+
+  tasks:
+    - name: Add NFS backup storage
+      ansible.builtin.command: >
+        pvesm add nfs nas-backup
+        --server {{ nfs_server }}
+        --export {{ proxmox_nfs_backup_path | default('/volume1/proxmox-backup') }}
+        --content backup
+        --options vers=4.1
+      register: nfs_backup
+      changed_when: nfs_backup.rc == 0
+      failed_when: false
+
+    - name: Add NFS ISO storage
+      ansible.builtin.command: >
+        pvesm add nfs nas-iso
+        --server {{ nfs_server }}
+        --export {{ proxmox_nfs_iso_path | default('/volume1/proxmox-iso') }}
+        --content iso,vztmpl
+        --options vers=4.1
+      register: nfs_iso
+      changed_when: nfs_iso.rc == 0
+      failed_when: false
+
+    - name: Verify storage configuration
+      ansible.builtin.command: pvesm status
+      register: storage_final
+      changed_when: false
+
+    - name: Display storage status
+      ansible.builtin.debug:
+        msg: "{{ storage_final.stdout_lines }}"
+
+# =============================================================================
+# Configure High Availability
+# =============================================================================
+
+- name: Configure High Availability
+  hosts: proxmox[0]
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check HA status
+      ansible.builtin.command: ha-manager status
+      register: ha_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display HA status
+      ansible.builtin.debug:
+        msg: "{{ ha_status.stdout_lines }}"
+
+    - name: Create HA group for Talos VMs
+      ansible.builtin.command: >
+        ha-manager groupadd talos-vms
+        --nodes pve1,pve2,pve3
+        --restricted 0
+        --nofailback 0
+      register: ha_group
+      changed_when: ha_group.rc == 0
+      failed_when: false
+
+    - name: Display HA group creation result
+      ansible.builtin.debug:
+        msg: "HA group 'talos-vms' created (or already exists)"
+
+# =============================================================================
+# Final Summary
+# =============================================================================
+
+- name: Cluster Setup Summary
+  hosts: proxmox[0]
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Generate setup summary
+      ansible.builtin.debug:
+        msg: |
+
+          ============================================================
+          PROXMOX CLUSTER SETUP COMPLETE
+          ============================================================
+
+          Cluster Name: {{ proxmox_cluster_name | default('homelab-cluster') }}
+
+          Nodes:
+            - pve1: 192.168.1.11 (Master)
+            - pve2: 192.168.1.12
+            - pve3: 192.168.1.13
+
+          Web UI Access:
+            - https://192.168.1.11:8006
+            - https://192.168.1.12:8006
+            - https://192.168.1.13:8006
+
+          Storage:
+            - nas-backup: NFS backup storage
+            - nas-iso: NFS ISO storage
+
+          HA Group: talos-vms (for Kubernetes VMs)
+
+          Next Steps:
+            1. Upload Talos ISO to nas-iso storage
+            2. Run Terraform to create VMs:
+               cd ../terraform/proxmox && terraform apply
+            3. Configure Talos cluster:
+               cd ../terraform/talos && terraform apply
+
+          ============================================================

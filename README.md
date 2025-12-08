@@ -87,7 +87,7 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ### Quick Overview
 
 - **Platform**: Kubernetes-first architecture with PERFECT enterprise-grade configuration
-- **Hypervisor**: Proxmox VE 8.x on each Beelink node (HA cluster)
+- **Hypervisor**: Proxmox VE 9.x on each Beelink node (HA cluster)
 - **Physical Hosts**: 3x Beelink Mini S13 (Intel N150 - 4 cores / 4 threads per node)
   - pve1: 192.168.1.11 (Proxmox host)
   - pve2: 192.168.1.12 (Proxmox host)
@@ -117,7 +117,7 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 ├───────────────────────────────────────────────────────────────────────┤
 │                                                                       │
 │  ┌───────────────────────────────────────────────────────────────┐   │
-│  │                 PROXMOX VE 8.x HA CLUSTER                      │   │
+│  │                 PROXMOX VE 9.x HA CLUSTER                      │   │
 │  │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐  │   │
 │  │  │  pve1 (.11)     │ │  pve2 (.12)     │ │  pve3 (.13)     │  │   │
 │  │  │  Beelink #1     │ │  Beelink #2     │ │  Beelink #3     │  │   │
@@ -251,7 +251,7 @@ docker-compose up -d pihole
 cat docs/PROXMOX_SETUP.md
 cat docs/TALOS_KUBERNETES_SETUP.md
 
-# 3. Install Proxmox VE 8.x on all 3 Beelinks (.11, .12, .13)
+# 3. Install Proxmox VE 9.x on all 3 Beelinks (.11, .12, .13)
 # 4. Create Proxmox cluster and configure HA
 # 5. Create Talos VMs (100, 101, 102) - see PROXMOX_SETUP.md
 
@@ -2019,7 +2019,11 @@ docker-compose config > config.txt
 | **K8s Architecture** | Design decisions and architecture | [docs/K8S_ARCHITECTURE.md](docs/K8S_ARCHITECTURE.md) |
 | **K8s Operations** | Day-2 operations, upgrades, maintenance | [docs/K8S_OPERATIONS.md](docs/K8S_OPERATIONS.md) |
 | **Service Deployment** | Service deployment strategies | [docs/K8S_DEPLOYMENT.md](docs/K8S_DEPLOYMENT.md) |
+| **K8s Migration** | Docker to Kubernetes migration guide | [docs/K8S_MIGRATION.md](docs/K8S_MIGRATION.md) |
 | **Optional Enhancements** | **Beyond 100/100: Enterprise features** ⭐ | **[k8s/optional/README.md](k8s/optional/README.md)** |
+| **Infrastructure as Code** | | |
+| **IaC Guide** | Terraform & Ansible complete guide ⭐ NEW | [docs/INFRASTRUCTURE_AS_CODE.md](docs/INFRASTRUCTURE_AS_CODE.md) |
+| **Terraform Modules** | Proxmox VMs & Talos cluster IaC | [infrastructure/README.md](infrastructure/README.md) |
 
 ### External Resources
 
@@ -2373,16 +2377,18 @@ git push origin feature/amazing-feature
 
 ### Planned Features 🚧
 
+**Q4 2024 - COMPLETED:**
+- [x] Terraform/Ansible automation ✅ NEW
+- [x] Kubernetes migration guide ✅ NEW
+- [x] Advanced monitoring (Loki for logs) ✅
+
 **Q1 2025:**
-- [ ] Terraform/Ansible automation
 - [ ] Pre-configured Grafana dashboards
 - [ ] Integration tests suite
 - [ ] Video tutorials
 
 **Q2 2025:**
 - [ ] High availability setup (multi-NAS)
-- [ ] Advanced monitoring (Loki for logs)
-- [ ] Kubernetes migration guide
 - [ ] Mobile app for management
 
 **Q3 2025:**
