@@ -938,4 +938,6 @@ See `scripts/` directory for:
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](TALOS_KUBERNETES_SETUP.md) | [Architecture](K8S_ARCHITECTURE.md)
+---
+
+[Back to Main README](../README.md) | [K8s Architecture](K8S_ARCHITECTURE.md) | [K8s Deployment](K8S_DEPLOYMENT.md)

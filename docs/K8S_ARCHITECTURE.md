@@ -742,4 +742,6 @@ This architecture provides:
 
 **Last Updated**: 2025-12-09
 
-[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Secrets Management](SECRETS_MANAGEMENT.md)
+---
+
+[Back to Main README](../README.md) | [K8s Operations](K8S_OPERATIONS.md) | [K8s Deployment](K8S_DEPLOYMENT.md)

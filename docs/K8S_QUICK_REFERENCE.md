@@ -1,6 +1,8 @@
-# Kubernetes Cluster - Quick Reference Guide
+# Kubernetes Quick Reference Guide
 
-**Grade**: 🏆 PERFECT 100/100 + Optional Enhancements
+Quick reference for common operations, architecture overview, and troubleshooting.
+
+**Last Updated**: 2025-12-09
 
 ---
 
@@ -63,7 +65,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    Kubernetes Cluster (100/100)                          │
+│                       Kubernetes Cluster                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────┐    │
@@ -123,7 +125,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│            Optional Enhancements (Beyond 100/100)                        │
+│                    Optional Enhancements                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────┐    │
@@ -159,9 +161,9 @@
 
 ---
 
-## 📦 Component List
+## Component List
 
-### Core Infrastructure (100/100 Baseline)
+### Core Infrastructure
 
 | Component | Purpose | Namespace | Replicas | Resources |
 |-----------|---------|-----------|----------|-----------|
@@ -220,7 +222,7 @@
 
 ---
 
-## 🚀 Deployment Cheat Sheet
+## Deployment Cheat Sheet
 
 ### Initial Cluster Setup
 
@@ -236,7 +238,7 @@ kubectl get nodes
 kubectl get pods -A
 ```
 
-### Deploy Production Stack (100/100)
+### Deploy Production Stack
 
 ```bash
 # Deploy complete production overlay
@@ -248,7 +250,7 @@ kubectl get ingress -A
 kubectl get certificates -A
 ```
 
-### Deploy Production-Plus (100/100 + Security)
+### Deploy Production-Plus (with Security Enhancements)
 
 ```bash
 # Deploy production + HIGH priority security
@@ -280,7 +282,7 @@ kubectl apply -k k8s/optional/low-priority/chaos-mesh/
 
 ---
 
-## 🔧 Common Operations
+## Common Operations
 
 ### Cluster Health
 
@@ -411,7 +413,7 @@ kubectl run nettest --rm -it --image=nicolaka/netshoot -- bash
 
 ---
 
-## 📊 Monitoring Quick Reference
+## Monitoring Quick Reference
 
 ### Grafana Dashboards
 
@@ -472,7 +474,7 @@ sum(rate(traefik_service_requests_total{code=~"5.."}[5m])) by (service)
 
 ---
 
-## 🔐 Security Quick Reference
+## Security Quick Reference
 
 ### Pod Security Standards
 
@@ -513,9 +515,9 @@ echo | openssl s_client -connect vaultwarden.yourdomain.com:443 2>/dev/null | \
 
 ---
 
-## 📈 Resource Planning
+## Resource Planning
 
-### Current Utilization (100/100 Baseline)
+### Current Utilization
 
 | Resource | Used | Total | % |
 |----------|------|-------|---|
@@ -539,7 +541,7 @@ echo | openssl s_client -connect vaultwarden.yourdomain.com:443 2>/dev/null | \
 
 ---
 
-## 🆘 Emergency Procedures
+## Emergency Procedures
 
 ### Cluster Not Responding
 
@@ -606,7 +608,7 @@ kubectl delete pods --field-selector=status.phase==Failed -A
 
 ---
 
-## 🔄 Upgrade Procedures
+## Upgrade Procedures
 
 ### Kubernetes Version Upgrade
 
@@ -649,7 +651,7 @@ curl -k https://vaultwarden.yourdomain.com
 
 ---
 
-## 📞 Quick Access URLs
+## Quick Access URLs
 
 ### Core Services
 - **Traefik Dashboard**: `https://traefik.yourdomain.com`
@@ -686,20 +688,15 @@ kubectl port-forward -n tracing svc/jaeger-query 16686:16686
 
 ---
 
-## 📚 Documentation Links
+## Documentation Links
 
-- **[Perfect 100/100 Guide](K8S_PERFECT_100_GUIDE.md)**: Complete deployment guide
-- **[Talos Setup](TALOS_KUBERNETES_SETUP.md)**: Initial cluster setup
-- **[Operations Guide](K8S_OPERATIONS.md)**: Day-2 operations
-- **[Optional Enhancements](../k8s/optional/README.md)**: Beyond 100/100
-- **[Architecture](K8S_ARCHITECTURE.md)**: Design decisions
-- **[Security](SECURITY.md)**: Security hardening
-
----
-
-**Last Updated**: 2025-12-09
-**Cluster Grade**: 🏆 PERFECT 100/100
+- [Talos Setup](TALOS_KUBERNETES_SETUP.md) - Initial cluster setup
+- [Operations Guide](K8S_OPERATIONS.md) - Day-2 operations
+- [Optional Enhancements](../k8s/optional/README.md) - Security and operational tools
+- [Architecture](K8S_ARCHITECTURE.md) - Design decisions
+- [Security](SECURITY.md) - Security hardening
+- [Validation Checklist](VALIDATION_CHECKLIST.md) - Production readiness validation
 
 ---
 
-[Back to Main README](../README.md) | [Operations Guide](K8S_OPERATIONS.md) | [Perfect 100 Guide](K8S_PERFECT_100_GUIDE.md)
+[Back to Main README](../README.md) | [Operations Guide](K8S_OPERATIONS.md) | [Architecture](K8S_ARCHITECTURE.md)

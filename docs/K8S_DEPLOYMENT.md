@@ -737,4 +737,6 @@ kubectl logs -n kube-system deployment/nfs-client-provisioner
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](TALOS_KUBERNETES_SETUP.md) | [Operations Guide](K8S_OPERATIONS.md) | [Architecture](K8S_ARCHITECTURE.md)
+---
+
+[Back to Main README](../README.md) | [K8s Architecture](K8S_ARCHITECTURE.md) | [K8s Operations](K8S_OPERATIONS.md)

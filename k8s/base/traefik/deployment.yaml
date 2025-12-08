@@ -101,4 +101,5 @@ spec:
                 - NET_BIND_SERVICE
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: traefik-acme

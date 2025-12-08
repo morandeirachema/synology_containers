@@ -627,4 +627,6 @@ openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](SETUP.md) | [Best Practices](BEST_PRACTICES.md) | [Secrets Management](SECRETS_MANAGEMENT.md)
+---
+
+[Back to Main README](../README.md) | [Best Practices](BEST_PRACTICES.md) | [Troubleshooting](TROUBLESHOOTING.md)

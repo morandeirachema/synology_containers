@@ -1,8 +1,12 @@
-# Kubernetes Manifests with Kustomize
+# Kubernetes Manifests
 
-This directory contains Kubernetes manifests organized using **Kustomize** for deploying your entire home stack on the Talos Kubernetes cluster.
+Kubernetes manifests organized using **Kustomize** for deploying the home stack on the Talos Kubernetes cluster.
 
-## 📁 Directory Structure
+**Last Updated**: 2025-12-09
+
+---
+
+## Directory Structure
 
 ```
 k8s/
@@ -35,7 +39,7 @@ k8s/
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Deploy Infrastructure (Bootstrap)
 
@@ -90,7 +94,7 @@ kubectl get certificates -A
 
 ---
 
-## 🎯 Using Kustomize Overlays
+## Using Kustomize Overlays
 
 Kustomize allows you to maintain a **single base configuration** and create environment-specific variations without duplicating code.
 
@@ -141,7 +145,7 @@ kubectl apply -k k8s/overlays/dev/
 
 ---
 
-## 📦 Available Base Applications
+## Available Base Applications
 
 ### 1. **Traefik** (`k8s/base/traefik/`)
 
@@ -266,7 +270,7 @@ kubectl apply -k k8s/base/it-tools/
 
 ---
 
-## 🔧 Customization Guide
+## Customization Guide
 
 ### Modify Base Configuration
 
@@ -313,9 +317,9 @@ kubectl apply -k k8s/overlays/home/
 
 ---
 
-## 🔐 Secrets Management
+## Secrets Management
 
-**📖 Full Guide**: [docs/SECRETS_MANAGEMENT.md](../docs/SECRETS_MANAGEMENT.md)
+**Full Guide**: [docs/SECRETS_MANAGEMENT.md](../docs/SECRETS_MANAGEMENT.md)
 
 ### Option 1: Kustomize Secret Generator (Development)
 
@@ -362,7 +366,7 @@ spec:
 
 ---
 
-## 📊 Monitoring & Logging
+## Monitoring and Logging
 
 ### Prometheus + Grafana
 
@@ -384,7 +388,7 @@ Logs accessible via Grafana → Explore → Loki
 
 ---
 
-## 🔄 GitOps with ArgoCD
+## GitOps with ArgoCD
 
 After deploying ArgoCD, you can manage everything declaratively:
 
@@ -419,7 +423,7 @@ Now ArgoCD will automatically sync your Git repository to the cluster!
 
 ---
 
-## 🛠️ Common Operations
+## Common Operations
 
 ### Update Image Tag
 
@@ -450,7 +454,7 @@ kubectl diff -k k8s/overlays/production/
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Check Kustomize Build
 
@@ -504,7 +508,7 @@ kubectl get certificates -n production
 
 ---
 
-## 📚 Next Steps
+## Next Steps
 
 1. **Customize domain names**: Replace `yourdomain.com` in all ingress files
 2. **Configure secrets**: Update all `secretGenerator` sections with real values
@@ -515,12 +519,12 @@ kubectl get certificates -n production
 
 ---
 
-## 🔗 Related Documentation
+## Related Documentation
 
 - [Talos Kubernetes Setup Guide](../docs/TALOS_KUBERNETES_SETUP.md)
 - [Kubernetes Architecture](../docs/K8S_ARCHITECTURE.md)
 - [Operations Guide](../docs/K8S_OPERATIONS.md)
-- [🔐 Secrets Management Guide](../docs/SECRETS_MANAGEMENT.md) - Complete guide for Kustomize, Conjur, and ESO
+- [Secrets Management Guide](../docs/SECRETS_MANAGEMENT.md)
 - [Conjur Setup Details](./infrastructure/external-secrets/README.md)
 - [Kustomize Official Docs](https://kustomize.io/)
 
@@ -530,7 +534,7 @@ kubectl get certificates -n production
 
 ---
 
-## 💡 Architecture Decision
+## Architecture Decision
 
 **Why only Pi-hole on Docker?**
 

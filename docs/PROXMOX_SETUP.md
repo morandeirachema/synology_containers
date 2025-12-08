@@ -1144,4 +1144,4 @@ pvecm add <working-node-ip>
 
 ---
 
-[Back to Main README](../README.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Infrastructure as Code](INFRASTRUCTURE_AS_CODE.md) | [K8s Architecture](K8S_ARCHITECTURE.md)
+[Back to Main README](../README.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Infrastructure as Code](INFRASTRUCTURE_AS_CODE.md)

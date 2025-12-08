@@ -34,7 +34,7 @@ spec:
     spec:
       containers:
         - name: conjur
-          image: cyberark/conjur:latest
+          image: cyberark/conjur:1.19
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

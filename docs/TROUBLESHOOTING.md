@@ -539,4 +539,6 @@ If you can't resolve the issue:
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](SETUP.md) | [Security Guide](SECURITY.md) | [Best Practices](BEST_PRACTICES.md)
+---
+
+[Back to Main README](../README.md) | [Security Guide](SECURITY.md) | [Best Practices](BEST_PRACTICES.md)

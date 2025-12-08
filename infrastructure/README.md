@@ -299,4 +299,4 @@ talosctl -n 192.168.1.21 reset --graceful=false
 
 ---
 
-[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Talos Config](../talos/README.md)
+[Back to Main README](../README.md) | [Proxmox Setup](../docs/PROXMOX_SETUP.md) | [Talos Setup](../docs/TALOS_KUBERNETES_SETUP.md)

@@ -385,4 +385,6 @@ talosctl logs kubelet --nodes 192.168.1.22 --follow
 
 **Last Updated**: 2025-12-09
 
-[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Secrets Management](../docs/SECRETS_MANAGEMENT.md) | [Architecture](../docs/K8S_ARCHITECTURE.md)
+---
+
+[Back to Main README](../README.md) | [Proxmox Setup](../docs/PROXMOX_SETUP.md) | [K8s Architecture](../docs/K8S_ARCHITECTURE.md)

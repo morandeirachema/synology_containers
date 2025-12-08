@@ -410,7 +410,7 @@ data:
         spec:
           containers:
             - name: app
-              image: my-app:latest
+              image: my-app:v1.0.0  # Replace with your versioned image
               env:
                 # Configure app to send traces to localhost (sidecar agent)
                 - name: JAEGER_AGENT_HOST

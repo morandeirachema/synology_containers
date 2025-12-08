@@ -356,6 +356,6 @@ CloudFlare Tunnel must connect to CloudFlare's network, but the `cloudflared` da
 
 ---
 
-**Made with ❤️ for the self-hosting community**
+---
 
-[Back to Main README](../README.md)
+[Back to Main README](../README.md) | [Security Guide](SECURITY.md) | [Best Practices](BEST_PRACTICES.md)

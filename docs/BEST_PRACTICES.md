@@ -440,4 +440,6 @@ docs/
 
 ---
 
-[Back to Main README](../README.md) | [Setup Guide](SETUP.md) | [Security Guide](SECURITY.md) | [Troubleshooting](TROUBLESHOOTING.md)
+---
+
+[Back to Main README](../README.md) | [Security Guide](SECURITY.md) | [Troubleshooting](TROUBLESHOOTING.md)
