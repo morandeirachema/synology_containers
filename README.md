@@ -101,7 +101,7 @@ This repository provides a **PERFECT GRADE (100/100) Talos Kubernetes cluster** 
 - **OS**: Talos Linux (immutable, API-managed, secure)
 - **K8s Version**: 1.29+ (upgradable via talosctl)
 - **CNI**: Cilium with eBPF for high-performance networking
-- **Storage**: Synology NAS via NFS
+- **Storage**: Synology NAS (192.168.1.5) via NFS
 - **Secrets**: CyberArk Conjur OSS for enterprise-grade secrets management
 - **GitOps**: ArgoCD for declarative deployments
 - **Manifests**: Kustomize for environment management (dev/staging/production)
@@ -310,6 +310,20 @@ kubectl apply -k k8s/overlays/production/
 | **Backup** | Velero | Cluster and volume backups |
 | **🏆 DR Testing** | **Custom Framework** | **Automated quarterly disaster recovery drills** ⭐ |
 | **🏆 Automated Updates** | **Renovate** | **Automated dependency updates via PRs** ⭐ |
+
+### Component Versions
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| **Talos Linux** | v1.9.x | Immutable Kubernetes OS |
+| **Kubernetes** | 1.29.x | Current production version |
+| **Proxmox VE** | 9.x | Hypervisor for Talos VMs |
+| **Cilium** | 1.15.x | CNI with eBPF |
+| **Traefik** | 3.x | Ingress controller |
+| **ArgoCD** | 2.x | GitOps deployments |
+| **Prometheus** | 2.x | Metrics collection |
+
+> **Note**: Version management is automated via Renovate. Check `infrastructure/terraform/` for exact versions used in IaC deployments.
 
 ### Perfect Score Components ⭐
 
@@ -639,7 +653,7 @@ Internet
     ↓
 [Router] → Port Forwarding (80, 443, 51820)
     ↓
-[Synology NAS - 192.168.1.100]
+[Synology NAS - 192.168.1.x]
     ↓
 [Traefik Reverse Proxy] ← SSL Certificates (Let's Encrypt)
     ↓
@@ -775,10 +789,12 @@ docker-compose ps
 
 ### Network Requirements
 
-- **Static IP**: Assigned to your NAS
+- **Static IP**: Assigned to your NAS (examples use `192.168.1.100`, adjust to your network)
 - **Port Forwarding**: Ports 80, 443, 51820 (UDP)
 - **Domain Name**: For external access (or dynamic DNS)
 - **CloudFlare Account**: For SSL certificates (free tier works)
+
+> **Note**: Docker examples use `192.168.1.100` as a placeholder. Kubernetes documentation uses `192.168.1.5` for the actual production Synology NAS. Replace with your actual NAS IP address.
 
 ### Resource Allocation (16GB RAM)
 

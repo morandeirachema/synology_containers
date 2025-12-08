@@ -2,7 +2,7 @@
 
 Complete guide for installing and configuring Proxmox VE on Beelink Mini S13 nodes to host Talos Linux virtual machines for Kubernetes.
 
-**Last Updated:** 2025-11-27
+**Last Updated:** 2025-12-09
 
 ---
 

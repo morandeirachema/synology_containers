@@ -166,9 +166,11 @@ Configures and bootstraps the Talos Kubernetes cluster.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `cluster_name` | `talos-cluster` | Kubernetes cluster name |
-| `talos_version` | `v1.9.0` | Talos Linux version |
-| `kubernetes_version` | `1.31.0` | Kubernetes version |
+| `talos_version` | `v1.9.x` | Talos Linux version (check [releases](https://github.com/siderolabs/talos/releases)) |
+| `kubernetes_version` | `1.29.x` | Kubernetes version (current production) |
 | `kubernetes_api_vip` | `192.168.1.20` | API server VIP |
+
+> **Version Note**: Update `talos_version` and `kubernetes_version` in `terraform.tfvars` to match your target deployment. Always test upgrades in staging first.
 
 ## Ansible Playbooks
 
