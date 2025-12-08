@@ -24,9 +24,9 @@ variable "proxmox_api_password" {
 }
 
 variable "proxmox_insecure" {
-  description = "Skip TLS certificate verification"
+  description = "Skip TLS certificate verification (set to true only for self-signed certs in lab environments)"
   type        = bool
-  default     = true
+  default     = false
 }
 
 # =============================================================================

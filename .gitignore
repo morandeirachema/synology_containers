@@ -84,3 +84,7 @@ talos/worker*.yaml
 talos/talosconfig
 talos/kubeconfig
 !talos/*.example
+
+# Kubernetes secrets (env files used by kustomize)
+k8s/**/*.env
+!k8s/**/*.env.example

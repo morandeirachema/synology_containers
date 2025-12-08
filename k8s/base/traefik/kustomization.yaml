@@ -20,8 +20,10 @@ images:
   - name: traefik
     newTag: v3.0
 
+# Secret Generator - Uses external env file for security
+# Copy cloudflare-credentials.env.example to cloudflare-credentials.env
+# and fill in your actual credentials
 secretGenerator:
   - name: cloudflare-api-credentials
-    literals:
-      - email=admin@yourdomain.com
-      - apiKey=YOUR_CLOUDFLARE_API_KEY_HERE
+    envs:
+      - cloudflare-credentials.env
