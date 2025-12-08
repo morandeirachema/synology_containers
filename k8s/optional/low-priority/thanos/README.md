@@ -813,3 +813,7 @@ In Grafana UI:
 ---
 
 **Remember**: Thanos is an **optional low-priority enhancement** for metrics hoarders. Your cluster is **already perfect** at 100/100 without it. Only deploy if you genuinely need multi-year metrics retention for capacity planning or compliance.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [Chaos Mesh](../chaos-mesh/README.md) | [Main README](../../../../README.md)

@@ -614,3 +614,7 @@ kubectl delete -k k8s/optional/medium-priority/opencost/
 ---
 
 **Remember**: OpenCost is an **optional enhancement** for cost visibility and FinOps. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [CloudNativePG](../cloudnative-pg/README.md) | [Flagger](../flagger/README.md) | [Main README](../../../../README.md)

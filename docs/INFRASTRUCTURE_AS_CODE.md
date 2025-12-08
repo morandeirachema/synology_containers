@@ -518,4 +518,6 @@ terraform import proxmox_virtual_environment_vm.talos["talos-cp-1"] pve1/qemu/10
 
 ---
 
-**Last Updated**: 2025-12-08
+**Last Updated**: 2025-12-09
+
+[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Infrastructure Module](../infrastructure/README.md)

@@ -541,3 +541,7 @@ kubectl delete -k k8s/optional/high-priority/gatekeeper/
 ---
 
 **Remember**: Gatekeeper is an **optional enhancement** for custom policy enforcement. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [Falco](../falco/README.md) | [Kubescape](../kubescape/README.md) | [Main README](../../../../README.md)

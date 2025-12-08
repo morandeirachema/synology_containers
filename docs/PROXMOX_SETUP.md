@@ -1139,4 +1139,9 @@ pvecm add <working-node-ip>
 
 | Date | Change |
 |------|--------|
+| 2025-12-09 | Added navigation footer |
 | 2025-11-27 | Initial documentation for Proxmox virtualization setup |
+
+---
+
+[Back to Main README](../README.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Infrastructure as Code](INFRASTRUCTURE_AS_CODE.md) | [K8s Architecture](K8S_ARCHITECTURE.md)

@@ -740,6 +740,6 @@ This architecture provides:
 
 ---
 
-**Last Updated**: 2025-11-27
+**Last Updated**: 2025-12-09
 
-[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Operations Guide](K8S_OPERATIONS.md)
+[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Talos Setup](TALOS_KUBERNETES_SETUP.md) | [Secrets Management](SECRETS_MANAGEMENT.md)

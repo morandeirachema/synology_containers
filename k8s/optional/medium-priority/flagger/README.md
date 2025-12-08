@@ -948,3 +948,7 @@ kubectl delete -k k8s/optional/medium-priority/flagger/
 ---
 
 **Remember**: Flagger is an **optional enhancement** for progressive delivery and advanced deployment strategies. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [CloudNativePG](../cloudnative-pg/README.md) | [OpenCost](../opencost/README.md) | [Main README](../../../../README.md)

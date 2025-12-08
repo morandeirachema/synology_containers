@@ -299,4 +299,4 @@ kubectl exec -n conjur -it $(kubectl get pod -n conjur -l app=conjur-postgres -o
 
 ---
 
-[Back to Setup Guide](../../../docs/TALOS_KUBERNETES_SETUP.md) | [Back to Architecture](../../../docs/K8S_ARCHITECTURE.md)
+[Back to Main README](../../../README.md) | [Secrets Management Guide](../../../docs/SECRETS_MANAGEMENT.md) | [K8s Manifests](../../README.md)

@@ -559,3 +559,7 @@ kubectl delete -k k8s/optional/high-priority/kubescape/
 ---
 
 **Remember**: Kubescape is an **optional enhancement** for compliance validation. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [Falco](../falco/README.md) | [Gatekeeper](../gatekeeper/README.md) | [Main README](../../../../README.md)

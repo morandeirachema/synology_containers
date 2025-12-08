@@ -536,3 +536,7 @@ If you can't resolve the issue:
 ---
 
 **Remember:** Most issues are configuration-related. Double-check `.env` file, permissions, and service-specific configs before assuming hardware issues.
+
+---
+
+[Back to Main README](../README.md) | [Setup Guide](SETUP.md) | [Security Guide](SECURITY.md) | [Best Practices](BEST_PRACTICES.md)

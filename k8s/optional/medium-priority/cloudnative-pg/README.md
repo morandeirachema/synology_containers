@@ -740,3 +740,7 @@ kubectl delete -k k8s/optional/medium-priority/cloudnative-pg/
 ---
 
 **Remember**: CloudNativePG is an **optional enhancement** for production-grade PostgreSQL. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [OpenCost](../opencost/README.md) | [Flagger](../flagger/README.md) | [Main README](../../../../README.md)

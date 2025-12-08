@@ -367,4 +367,6 @@ docker-compose ps
 
 ---
 
-**Last Updated**: 2025-12-08
+**Last Updated**: 2025-12-09
+
+[Back to Main README](../README.md) | [K8s Manifests](../k8s/README.md) | [Secrets Management](SECRETS_MANAGEMENT.md)

@@ -1627,6 +1627,6 @@ kubectl describe certificate <cert-name> -n <namespace>
 
 ---
 
-**Last Updated**: 2025-11-27
+**Last Updated**: 2025-12-09
 
-[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [K8s Architecture](K8S_ARCHITECTURE.md) | [Operations Guide](K8S_OPERATIONS.md)
+[Back to Main README](../README.md) | [Proxmox Setup](PROXMOX_SETUP.md) | [K8s Manifests](../k8s/README.md) | [Secrets Management](SECRETS_MANAGEMENT.md)

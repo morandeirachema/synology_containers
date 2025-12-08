@@ -383,3 +383,7 @@ kubectl delete -k k8s/optional/high-priority/falco/
 ---
 
 **Remember**: Falco is an **optional enhancement** for defense-in-depth. Your cluster is **already perfect** at 100/100 without it.
+
+---
+
+[Back to Optional Enhancements](../../README.md) | [Gatekeeper](../gatekeeper/README.md) | [Kubescape](../kubescape/README.md) | [Main README](../../../../README.md)
